@@ -1,6 +1,5 @@
 """
-MongoDB async connection via Motor.
-Beanie ODM is initialised on app startup with all document models.
+MongoDB async connection via Motor + Beanie ODM.
 """
 from motor.motor_asyncio import AsyncIOMotorClient
 from beanie import init_beanie
@@ -8,7 +7,6 @@ from app.config import get_settings
 from loguru import logger
 
 settings = get_settings()
-
 _client: AsyncIOMotorClient | None = None
 
 
@@ -17,21 +15,25 @@ async def connect_mongo():
     logger.info("Connecting to MongoDB…")
     _client = AsyncIOMotorClient(settings.MONGODB_URL)
 
-    # 1. Update these imports to match your folder move
     from app.models.user_profile import UserProfile
     from app.models.outreach_log import OutreachLog
-    # from app.models.email_campaign import EmailCampaign # Uncomment when file is created
+    from app.models.email_campaign import EmailCampaign, EmailQueueItem, EmailReply
+    from app.api.v1.whatsapp import WACampaign, WAQueueItem
 
-    # 2. Register them here
     await init_beanie(
         database=_client[settings.MONGODB_DB_NAME],
         document_models=[
-            UserProfile, 
+            UserProfile,
             OutreachLog,
-            # EmailCampaign # Add here
+            EmailCampaign,
+            EmailQueueItem,
+            EmailReply,
+            WACampaign,
+            WAQueueItem,
         ],
     )
     logger.success("MongoDB connected ✓")
+
 
 async def disconnect_mongo():
     global _client
@@ -41,5 +43,4 @@ async def disconnect_mongo():
 
 
 def get_db():
-    """Return the raw Motor database (for custom queries outside Beanie)."""
     return _client[settings.MONGODB_DB_NAME]

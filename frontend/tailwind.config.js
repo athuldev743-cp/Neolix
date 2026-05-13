@@ -1,43 +1,59 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{js,jsx}'],
+  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       fontFamily: {
-        sans: ['DM Sans', 'system-ui', 'sans-serif'],
+        sans: ['Outfit', 'sans-serif'],
         mono: ['JetBrains Mono', 'monospace'],
       },
       colors: {
-        ink: {
-          950: '#07080D',
-          900: '#0D0F1A',
-          800: '#131625',
-          700: '#1C2035',
-          600: '#252A42',
-          500: '#353C5A',
-          400: '#4A5270',
-          300: '#6B7399',
+        // Brand — blue
+        brand: {
+          50:  '#eff6ff',
+          100: '#dbeafe',
+          200: '#bfdbfe',
+          300: '#93c5fd',
+          400: '#60a5fa',
+          500: '#3b82f6',
+          600: '#2563eb',
+          700: '#1d4ed8',
+          800: '#1e40af',
+          900: '#1e3a8a',
         },
-        neon: {
-          cyan:   '#00E5FF',
-          blue:   '#4F8EF7',
-          violet: '#A78BFA',
-          green:  '#10F5A0',
-          amber:  '#FFB547',
+        // Surface — warm gray (replaces old ink-*)
+        surface: {
+          50:  '#f8fafc',
+          100: '#f1f5f9',
+          200: '#e2e8f0',
+          300: '#cbd5e1',
+          400: '#94a3b8',
+          500: '#64748b',
+          600: '#475569',
+          700: '#334155',
+          800: '#1e293b',
+          900: '#0f172a',
         },
-        glass: 'rgba(255,255,255,0.04)',
+        // Accent — emerald for success/WA
+        emerald: {
+          50:  '#ecfdf5',
+          100: '#d1fae5',
+          200: '#a7f3d0',
+          300: '#6ee7b7',
+          400: '#34d399',
+          500: '#10b981',
+          600: '#059669',
+          700: '#047857',
+        },
       },
-      backgroundImage: {
-        'grid-ink': "url(\"data:image/svg+xml,%3Csvg width='40' height='40' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h40v40H0z' fill='none'/%3E%3Cpath d='M40 0H0v1h40V0zM0 40V0H1v40H0z' fill='rgba(255,255,255,0.03)'/%3E%3C/svg%3E\")",
+      boxShadow: {
+        card:  '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+        panel: '0 4px 24px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04)',
+        float: '0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)',
       },
-      animation: {
-        'pulse-slow': 'pulse 4s cubic-bezier(0.4,0,0.6,1) infinite',
-        'fade-in':    'fadeIn 0.4s ease forwards',
-        'slide-up':   'slideUp 0.4s ease forwards',
-      },
-      keyframes: {
-        fadeIn:  { from: { opacity: 0 }, to: { opacity: 1 } },
-        slideUp: { from: { opacity: 0, transform: 'translateY(12px)' }, to: { opacity: 1, transform: 'translateY(0)' } },
+      borderRadius: {
+        '2xl': '16px',
+        '3xl': '24px',
       },
     },
   },
