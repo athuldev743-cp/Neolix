@@ -17,16 +17,21 @@ async def connect_mongo():
     logger.info("Connecting to MongoDB…")
     _client = AsyncIOMotorClient(settings.MONGODB_URL)
 
-    # Import here to avoid circular imports
+    # 1. Update these imports to match your folder move
     from app.models.user_profile import UserProfile
     from app.models.outreach_log import OutreachLog
+    # from app.models.email_campaign import EmailCampaign # Uncomment when file is created
 
+    # 2. Register them here
     await init_beanie(
         database=_client[settings.MONGODB_DB_NAME],
-        document_models=[UserProfile, OutreachLog],
+        document_models=[
+            UserProfile, 
+            OutreachLog,
+            # EmailCampaign # Add here
+        ],
     )
     logger.success("MongoDB connected ✓")
-
 
 async def disconnect_mongo():
     global _client

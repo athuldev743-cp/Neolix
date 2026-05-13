@@ -58,11 +58,10 @@ class UserProfile(Document):
         name = "user_profile"
 
     @classmethod
-    async def get_profile(cls) -> "UserProfile":
-        """Always return the single user profile, creating it if absent."""
-        profile = await cls.find_one({"_id": cls.SINGLETON_ID})
-        if not profile:
-            profile = cls()
-            profile.id = cls.SINGLETON_ID   # type: ignore[assignment]
-            await profile.insert()
-        return profile
+    async def get_profile(cls):
+     profile = await cls.find_one()
+     if not profile:
+        # Create a blank one so the app doesn't crash
+        profile = cls()
+        await profile.insert()
+     return profile

@@ -12,3 +12,5 @@ aiofiles
 python-dotenv
 loguru
 cryptography
+aiosmtplib
+groq
