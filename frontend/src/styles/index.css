@@ -1,0 +1,100 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+
+  body {
+    @apply bg-ink-950 text-slate-200 font-sans;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { @apply bg-ink-900; }
+  ::-webkit-scrollbar-thumb { @apply bg-ink-500 rounded-full; }
+
+  ::selection { background: rgba(79,142,247,0.3); }
+}
+
+@layer components {
+  /* Glass card */
+  .card {
+    @apply bg-ink-800 border border-white/5 rounded-2xl;
+  }
+  .card-sm {
+    @apply bg-ink-800 border border-white/5 rounded-xl;
+  }
+
+  /* Neon accent borders */
+  .border-neon-cyan  { border-color: rgba(0,229,255,0.35); }
+  .border-neon-blue  { border-color: rgba(79,142,247,0.35); }
+  .border-neon-green { border-color: rgba(16,245,160,0.35); }
+
+  /* Input */
+  .input {
+    @apply w-full bg-ink-700 border border-white/10 rounded-xl px-4 py-2.5
+           text-slate-100 placeholder-ink-300 text-sm
+           focus:outline-none focus:border-neon-blue/60 focus:ring-1 focus:ring-neon-blue/20
+           transition-all duration-150;
+  }
+  .input:hover { @apply border-white/20; }
+
+  /* Textarea */
+  .textarea {
+    @apply input resize-none leading-relaxed;
+  }
+
+  /* Buttons */
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium
+           bg-neon-blue text-ink-950 hover:bg-blue-400
+           transition-all duration-150 active:scale-95;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+           text-slate-400 hover:text-slate-100 hover:bg-white/5
+           transition-all duration-150;
+  }
+  .btn-danger {
+    @apply inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium
+           text-red-400 hover:text-red-300 hover:bg-red-500/10
+           transition-all duration-150;
+  }
+
+  /* Badge */
+  .badge {
+    @apply inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  /* Section label */
+  .section-label {
+    @apply text-xs font-medium tracking-widest uppercase text-ink-300;
+  }
+
+  /* Glow dot */
+  .glow-dot {
+    @apply w-1.5 h-1.5 rounded-full;
+    box-shadow: 0 0 6px currentColor;
+  }
+}
+
+/* Animated gradient orbs in background */
+.orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(120px);
+  pointer-events: none;
+  z-index: 0;
+  animation: orbFloat 20s ease-in-out infinite;
+}
+.orb-1 { width: 600px; height: 600px; top: -200px; left: -100px; background: rgba(79,142,247,0.07); }
+.orb-2 { width: 500px; height: 500px; bottom: -150px; right: -100px; background: rgba(167,139,250,0.06); animation-delay: -7s; }
+.orb-3 { width: 300px; height: 300px; top: 40%; left: 40%; background: rgba(0,229,255,0.04); animation-delay: -14s; }
+
+@keyframes orbFloat {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(30px, -20px) scale(1.05); }
+  66%       { transform: translate(-20px, 30px) scale(0.95); }
+}
