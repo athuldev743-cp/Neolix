@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'https://neolix.onrender.com/api/v1',
+  baseURL: import.meta.env.VITE_API_URL || 'https://neolix-backend.onrender.com/api/v1',
   timeout: 30000,
 })
 

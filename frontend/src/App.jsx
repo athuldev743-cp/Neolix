@@ -2,12 +2,15 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import { useState, useEffect, useCallback, createContext } from 'react'
 import Layout from './components/layout/Layout'
-import DashboardPage from './pages/DashboardPage'
-import ProfilePage from './pages/ProfilePage'
-import { LeadsPage, ScannerPage, OutreachPage, SettingsPage } from './pages/PlaceholderPages'
+import DashboardPage  from './pages/DashboardPage'
+import ProfilePage    from './pages/ProfilePage'
+import LeadsPage      from './pages/LeadsPage'
+import CampaignPage   from './pages/CampaignPage'
+import RepliesPage    from './pages/RepliesPage'
+import WhatsAppPage   from './pages/WhatsAppPage'
+import SettingsPage   from './pages/SettingsPage'
 import { profileApi } from './services/api'
 
-// 1. Create a Context for the Profile
 export const ProfileContext = createContext(null)
 
 export default function App() {
@@ -19,15 +22,13 @@ export default function App() {
       const { data } = await profileApi.get()
       setProfile(data)
     } catch (err) {
-      console.error("Failed to fetch profile:", err)
+      console.error('Failed to fetch profile:', err)
     } finally {
       setLoading(false)
     }
   }, [])
 
-  useEffect(() => { 
-    refreshProfile() 
-  }, [refreshProfile])
+  useEffect(() => { refreshProfile() }, [refreshProfile])
 
   return (
     <ProfileContext.Provider value={{ profile, setProfile, refreshProfile, loading }}>
@@ -36,30 +37,27 @@ export default function App() {
           position="top-right"
           toastOptions={{
             style: {
-              background: '#1C2035',
-              color: '#e2e8f0',
-              border: '1px solid rgba(255,255,255,0.08)',
+              background: '#ffffff',
+              color: '#1e293b',
+              border: '1px solid #e2e8f0',
               fontSize: '13px',
               borderRadius: '12px',
+              boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
             },
-            success: { iconTheme: { primary: '#10F5A0', secondary: '#1C2035' } },
-            error:   { iconTheme: { primary: '#f87171', secondary: '#1C2035' } },
+            success: { iconTheme: { primary: '#10b981', secondary: '#ffffff' } },
+            error:   { iconTheme: { primary: '#ef4444', secondary: '#ffffff' } },
           }}
         />
-        
         <Routes>
-          {/* Wrap only the authenticated routes in the Layout */}
           <Route element={<Layout />}>
-            <Route path="/"         element={<DashboardPage />} />
-            <Route path="/profile"  element={<ProfilePage />} />
-            <Route path="/leads"    element={<LeadsPage />} />
-            <Route path="/scanner"  element={<ScannerPage />} />
-            <Route path="/outreach" element={<OutreachPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/"          element={<DashboardPage />} />
+            <Route path="/leads"     element={<LeadsPage />} />
+            <Route path="/campaigns" element={<CampaignPage />} />
+            <Route path="/replies"   element={<RepliesPage />} />
+            <Route path="/whatsapp"  element={<WhatsAppPage />} />
+            <Route path="/settings"  element={<SettingsPage />} />
+            <Route path="/profile"   element={<SettingsPage />} />
           </Route>
-          
-          {/* Example of a page without Sidebar (Future-proofing) */}
-          {/* <Route path="/login" element={<LoginPage />} /> */}
         </Routes>
       </BrowserRouter>
     </ProfileContext.Provider>
