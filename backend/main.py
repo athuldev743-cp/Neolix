@@ -31,6 +31,14 @@ app = FastAPI(
 )
 
 # ── CORS ─────────────────────────────────────────────────────────────────────
+
+origins = [
+    "http://localhost:5173",            # Local React (Vite)
+    "https://neolix-sage.vercel.app",            # Local React (CRA)
+    "" # Your live production URL
+]
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -38,6 +46,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 # ── Routers ──────────────────────────────────────────────────────────────────
 app.include_router(health.router)

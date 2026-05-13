@@ -15,9 +15,12 @@ class Settings(BaseSettings):
 
     # Aiven PostgreSQL — leads (Module 2)
     AIVEN_DATABASE_URL: str = ""
+    GROQAPI_KEY: str = ""
 
     # CORS
-    ALLOWED_ORIGINS: str = "http://localhost:5173"
+
+
+    ALLOWED_ORIGINS: str ="https://neolix-sage.vercel.app/"
 
     @property
     def cors_origins(self) -> list[str]:
