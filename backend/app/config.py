@@ -3,7 +3,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", case_sensitive=False)
+    # Added extra="ignore" to prevent crashes from unrecognized .env lines
+    model_config = SettingsConfigDict(
+        env_file=".env", 
+        case_sensitive=False, 
+        extra="ignore"
+    )
 
     APP_NAME: str = "Neolix Hub"
     APP_ENV: str = "development"
@@ -18,9 +23,7 @@ class Settings(BaseSettings):
     GROQAPI_KEY: str = ""
 
     # CORS
-
-
-    ALLOWED_ORIGINS: str ="https://neolix-sage.vercel.app/"
+    ALLOWED_ORIGINS: str = "https://neolix-sage.vercel.app/"
 
     @property
     def cors_origins(self) -> list[str]:
