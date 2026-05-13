@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     GROQAPI_KEY: str = ""
 
     # CORS
-    ALLOWED_ORIGINS: str = "https://neolix-sage.vercel.app/"
+    ALLOWED_ORIGINS: str = "https://neolix-sage.vercel.app"
 
     @property
     def cors_origins(self) -> list[str]:
