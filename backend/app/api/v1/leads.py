@@ -23,50 +23,32 @@ async def get_conn():
     if not url:
         raise HTTPException(500, "AIVEN_DATABASE_URL not configured")
 
-    # 1. Clean the URL (asyncpg doesn't like parameters in the string when using SSL manually)
-    clean_url = re.sub(r'[?&]sslmode=\w+', '', url)
-    clean_url = re.sub(r'[?&]application_name=[^&]+', '', clean_url)
-    clean_url = re.sub(r'[?&]target_session_attrs=[^&]+', '', clean_url)
-    clean_url = re.sub(r'[?&]+$', '', clean_url)
+    clean_url = re.sub(r'[?&](sslmode|application_name|target_session_attrs)=\w+', '', url)
+    clean_url = clean_url.rstrip('?')
 
-    # 2. Get the Cert from Environment Variable
-    ca_cert_content = os.getenv("AIVEN_CA_CERT")
-    if not ca_cert_content:
-        # Fallback to no verification if cert is missing, or raise error
-        ssl_ctx = ssl.create_default_context()
-        ssl_ctx.check_hostname = False
-        ssl_ctx.verify_mode = ssl.CERT_NONE
-    else:
-        # 3. Create a temporary file to hold the certificate for the connection
-        # This is deleted automatically when the block ends
-        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_ca:
-            temp_ca.write(ca_cert_content)
-            temp_ca_path = temp_ca.name
+    ca_cert = os.getenv("AIVEN_CA_CERT")
+    ssl_ctx = ssl.create_default_context()
 
+    if ca_cert:
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".pem") as tmp:
+            tmp.write(ca_cert)
+            tmp_path = tmp.name
         try:
-            ssl_ctx = ssl.create_default_context(cafile=temp_ca_path)
-            ssl_ctx.check_hostname = False # Aiven hosts often don't match the cert hostname exactly
+            ssl_ctx.load_verify_locations(cafile=tmp_path)
             ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+            ssl_ctx.check_hostname = False
+            return await asyncpg.connect(clean_url, ssl=ssl_ctx, timeout=20)
         finally:
-            # We remove the temp file reference after creating the context
-            # Note: Depending on OS, you might need to keep it until connect() finishes
-            pass
-
-    try:
-        # 4. Connect using the secure context
-        conn = await asyncpg.connect(clean_url, ssl=ssl_ctx, timeout=15)
-        # Clean up temp file if it exists
-        if 'temp_ca_path' in locals() and os.path.exists(temp_ca_path):
-            os.remove(temp_ca_path)
-        return conn
-    except Exception as e:
-        raise HTTPException(500, f"DB connection failed: {str(e)}")
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+    else:
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        return await asyncpg.connect(clean_url, ssl=ssl_ctx, timeout=20)
 
 async def ensure_table():
-    # Only keep the table creation part. 
-    # DO NOT run index creation here on 1M rows; it will lock your DB.
     conn = await get_conn()
     try:
+        # Tables and Columns now match your 'psql' terminal structure
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS leads (
                 id           BIGSERIAL PRIMARY KEY,
@@ -111,23 +93,36 @@ def extract_emails(text: str) -> list[str]:
 async def upsert_lead(conn, data: dict) -> tuple[int, bool]:
     email = (data.get("email") or "").lower().strip()
     row = await conn.fetchrow("SELECT id FROM leads WHERE email = $1", email)
+    
+    # Map 'mobile' to 'phone' if coming from a file upload
+    phone_val = data.get("phone") or data.get("mobile") or ""
+
     if row:
         sets, vals, idx = [], [], 2
-        for k in ("contact_name","company_name","phone","city","state","business_details","business_type","source"):
+        cols = ("contact_name","company_name","city","state","business_details","business_type","source")
+        for k in cols:
             if data.get(k):
                 sets.append(f"{k} = ${idx}")
                 vals.append(data[k])
                 idx += 1
+        
+        # Explicitly handle phone update
+        if phone_val:
+            sets.append(f"phone = ${idx}")
+            vals.append(phone_val)
+            idx += 1
+
         if sets:
             await conn.execute(f"UPDATE leads SET {', '.join(sets)} WHERE id = $1", row["id"], *vals)
         return row["id"], True
+
     new = await conn.fetchrow(
         """INSERT INTO leads
-           (email,contact_name,company_name,phone,city,state,business_details,business_type,source)
+           (email, contact_name, company_name, phone, city, state, business_details, business_type, source)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id""",
         email,
         data.get("contact_name",""), data.get("company_name",""),
-        data.get("phone",""),        data.get("city",""),
+        phone_val,                  data.get("city",""),
         data.get("state",""),        data.get("business_details",""),
         data.get("business_type",""),data.get("source","manual"),
     )
@@ -139,23 +134,27 @@ async def upsert_lead(conn, data: dict) -> tuple[int, bool]:
 async def search_leads(q: str = Query(..., min_length=1), limit: int = Query(50, le=200)):
     conn = await get_conn()
     try:
-        # 1. Use COALESCE so NULL values from your 1M rows don't crash the search
-        # 2. Add a 'timeout' to the fetch so it doesn't hang the server
         term = f"%{q.lower()}%"
+        # Using COALESCE prevents 'NoneType' errors in Python and DB
         rows = await conn.fetch(
-            """SELECT id, email, contact_name, company_name, phone,
+            """SELECT id, email, 
+                      COALESCE(contact_name, '') as contact_name, 
+                      COALESCE(company_name, '') as company_name, 
+                      COALESCE(phone, '') as phone,
                       COALESCE(city, '') as city, 
                       COALESCE(state, '') as state, 
                       COALESCE(business_type, '') as business_type, 
                       COALESCE(business_details, '') as business_details
                FROM leads
-               WHERE (lower(email) LIKE $1 
-                  OR lower(company_name) LIKE $1 
-                  OR lower(contact_name) LIKE $1)
+               WHERE lower(email) LIKE $1 
+                  OR lower(COALESCE(company_name, '')) LIKE $1
+                  OR lower(COALESCE(contact_name, '')) LIKE $1
                LIMIT $2""",
             term, limit, timeout=25.0
         )
         return {"leads": [dict(r) for r in rows], "total": len(rows)}
+    except Exception as e:
+        raise HTTPException(500, f"Search error: {str(e)}")
     finally:
         await conn.close()
 
