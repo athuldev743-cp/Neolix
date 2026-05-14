@@ -136,8 +136,7 @@ async def search_leads(q: str = Query(..., min_length=1), limit: int = Query(50,
     try:
         search_term = q.lower().strip()
         
-        # This SQL targets the 'idx_leads_universal_search' index exactly
-        # The COALESCE is required because your old leads might have NULL business_types
+        # We target the universal index (Name + Business Type)
         rows = await conn.fetch(
             """SELECT id, email, 
                       COALESCE(contact_name, '') as contact_name, 
@@ -145,15 +144,18 @@ async def search_leads(q: str = Query(..., min_length=1), limit: int = Query(50,
                       COALESCE(phone, '') as phone,
                       COALESCE(business_type, '') as business_type
                FROM leads
-               WHERE (lower(company_name) || ' ' || COALESCE(lower(business_type), '')) % $1
+               WHERE 
+                  (lower(company_name) || ' ' || COALESCE(lower(business_type), '')) % $1
                   OR lower(company_name) LIKE $2
                ORDER BY 
+                  -- This line forces AI Traders to be higher than Airtel
                   (lower(company_name) = $3) DESC,
+                  (lower(company_name) LIKE $2) DESC,
                   similarity(lower(company_name), $1) DESC
                LIMIT $4""",
-            search_term,      # $1 (similarity)
-            f"{search_term}%", # $2 (prefix)
-            search_term,      # $3 (exact)
+            search_term,      # $1
+            f"{search_term}%", # $2
+            search_term,      # $3
             limit             # $4
         )
         return {"leads": [dict(r) for r in rows], "total": len(rows)}
