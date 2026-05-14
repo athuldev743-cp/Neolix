@@ -136,7 +136,8 @@ async def search_leads(q: str = Query(..., min_length=1), limit: int = Query(50,
     try:
         search_term = q.lower().strip()
         
-        # This query uses the new universal index and handles NULLs for the 1M existing rows
+        # This SQL targets the 'idx_leads_universal_search' index exactly
+        # The COALESCE is required because your old leads might have NULL business_types
         rows = await conn.fetch(
             """SELECT id, email, 
                       COALESCE(contact_name, '') as contact_name, 
@@ -146,12 +147,14 @@ async def search_leads(q: str = Query(..., min_length=1), limit: int = Query(50,
                FROM leads
                WHERE (lower(company_name) || ' ' || COALESCE(lower(business_type), '')) % $1
                   OR lower(company_name) LIKE $2
-                  OR lower(email) LIKE $2
                ORDER BY 
-                  (lower(company_name) LIKE $2) DESC,
+                  (lower(company_name) = $3) DESC,
                   similarity(lower(company_name), $1) DESC
-               LIMIT $3""",
-            search_term, f"{search_term}%", limit, timeout=15.0
+               LIMIT $4""",
+            search_term,      # $1 (similarity)
+            f"{search_term}%", # $2 (prefix)
+            search_term,      # $3 (exact)
+            limit             # $4
         )
         return {"leads": [dict(r) for r in rows], "total": len(rows)}
     finally:
