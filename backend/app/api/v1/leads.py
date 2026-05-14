@@ -26,21 +26,26 @@ async def get_conn():
     clean_url = re.sub(r'[?&](sslmode|application_name|target_session_attrs)=\w+', '', url)
     clean_url = clean_url.rstrip('?')
 
-    ca_cert = os.getenv("AIVEN_CA_CERT")
     ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False          # ← always first
 
-    if ca_cert:
+    ca_cert_env  = os.getenv("AIVEN_CA_CERT")  # Render env var
+    ca_cert_file = "ca.pem"                     # local file
+
+    if ca_cert_env:
         with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".pem") as tmp:
-            tmp.write(ca_cert)
+            tmp.write(ca_cert_env)
             tmp_path = tmp.name
         try:
             ssl_ctx.load_verify_locations(cafile=tmp_path)
             ssl_ctx.verify_mode = ssl.CERT_REQUIRED
-            ssl_ctx.check_hostname = False
             return await asyncpg.connect(clean_url, ssl=ssl_ctx, timeout=20)
         finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+            os.remove(tmp_path)
+    elif os.path.exists(ca_cert_file):
+        ssl_ctx.load_verify_locations(cafile=ca_cert_file)
+        ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+        return await asyncpg.connect(clean_url, ssl=ssl_ctx, timeout=20)
     else:
         ssl_ctx.verify_mode = ssl.CERT_NONE
         return await asyncpg.connect(clean_url, ssl=ssl_ctx, timeout=20)
@@ -48,23 +53,35 @@ async def get_conn():
 async def ensure_table():
     conn = await get_conn()
     try:
-        # Tables and Columns now match your 'psql' terminal structure
+        # Match your current optimized data footprint
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS leads (
-                id           BIGSERIAL PRIMARY KEY,
-                email        TEXT UNIQUE,
-                contact_name TEXT DEFAULT '',
-                company_name TEXT DEFAULT '',
-                phone        TEXT DEFAULT '',
-                city         TEXT DEFAULT '',
-                state        TEXT DEFAULT '',
-                country      TEXT DEFAULT '',
-                business_type TEXT DEFAULT '',
-                business_details TEXT DEFAULT '',
-                source       TEXT DEFAULT 'manual',
-                created_at   TIMESTAMPTZ DEFAULT NOW()
-            )
+                id               BIGSERIAL PRIMARY KEY,
+                email            TEXT,
+                contact_name     TEXT NOT NULL DEFAULT '',
+                company_name     TEXT NOT NULL DEFAULT '',
+                phone            TEXT NOT NULL DEFAULT '',
+                city             TEXT NOT NULL DEFAULT '',
+                state            TEXT NOT NULL DEFAULT '',
+                country          TEXT NOT NULL DEFAULT '',
+                business_type    TEXT NOT NULL DEFAULT '',
+                business_details TEXT NOT NULL DEFAULT '',
+                address          TEXT NOT NULL DEFAULT '',
+                website          TEXT NOT NULL DEFAULT '',
+                source           TEXT NOT NULL DEFAULT 'manual',
+                
+                -- Ensure your schema definition mirrors the live configuration
+                search_vector    tsvector GENERATED ALWAYS AS (
+                    setweight(to_tsvector('english', coalesce(company_name, '')), 'A')  || 
+                    setweight(to_tsvector('english', coalesce(business_type, '')), 'B')
+                ) STORED,
+                
+                created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
         """)
+        # Fallback index declaration to safeguard system integrity
+        await conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_leads_email_unique ON leads (email) WHERE email IS NOT NULL;")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_leads_fts ON leads USING GIN (search_vector);")
     finally:
         await conn.close()
 
@@ -134,24 +151,33 @@ async def upsert_lead(conn, data: dict) -> tuple[int, bool]:
 async def search_leads(q: str = Query(..., min_length=1), limit: int = Query(50, le=200)):
     conn = await get_conn()
     try:
-        search_term = q.lower().strip()
-        
+        # 1. Clean the incoming query text
+        clean_terms = re.findall(r'\w+', q.lower().strip())
+        if not clean_terms:
+            return {"leads": [], "total": 0}
+            
+        # 2. Formulate the explicit OR logic ('physio | rehabilitation')
+        # This triggers your 21MB GIN index instantly
+        ts_query_string = " | ".join(clean_terms)
+
         rows = await conn.fetch(
-            """SELECT id, email, contact_name, company_name, phone, business_type
-               FROM leads
-               WHERE (lower(company_name) || ' ' || COALESCE(lower(business_type), '')) % $1
-                  OR lower(company_name) LIKE $2
-               ORDER BY 
-                  -- 1. Exact matches (e.g., Company is named 'AI')
-                  (lower(company_name) = $1) DESC,
-                  -- 2. Starts with (e.g., 'AI Traders' vs 'Airtel')
-                  (lower(company_name) LIKE $2) DESC,
-                  -- 3. Industry similarity (The 'Smart' part)
-                  similarity(lower(company_name), $1) DESC
-               LIMIT $3""",
-            search_term, f"{search_term}%", limit, timeout=20.0
+            """SELECT id, email, contact_name, company_name, phone, business_type, city, state,
+                      ts_rank(search_vector, query) as rank
+               FROM leads, to_tsquery('english', $1) query
+               WHERE search_vector @@ query
+               ORDER BY rank DESC, company_name ASC
+               LIMIT $2""",
+            ts_query_string, limit, timeout=20.0
         )
-        return {"leads": [dict(r) for r in rows], "total": len(rows)}
+        
+        # 3. Formulate the response structures
+        leads_list = [dict(r) for r in rows]
+        return {"leads": leads_list, "total": len(leads_list)}
+        
+    except asyncpg.exceptions.InvalidConnectionStringError:
+        raise HTTPException(500, "Database formatting configuration error")
+    except Exception as e:
+        raise HTTPException(500, f"Search pipeline execution error: {str(e)}")
     finally:
         await conn.close()
 
@@ -283,3 +309,5 @@ async def get_lead(lead_id: int):
         return dict(row)
     finally:
         await conn.close()
+
+

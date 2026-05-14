@@ -12,3 +12,4 @@ frontend/.env
 .DS_Store
 
 backend/ca.pem
+backend/data.xlsx
