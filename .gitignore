@@ -10,3 +10,5 @@ frontend/.env
 
 # General
 .DS_Store
+
+backend/ca.pem

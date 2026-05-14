@@ -63,31 +63,26 @@ async def get_conn():
         raise HTTPException(500, f"DB connection failed: {str(e)}")
 
 async def ensure_table():
+    # Only keep the table creation part. 
+    # DO NOT run index creation here on 1M rows; it will lock your DB.
     conn = await get_conn()
     try:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS leads (
-                id            BIGSERIAL PRIMARY KEY,
-                email         TEXT UNIQUE,
-                contact_name  TEXT DEFAULT '',
-                company_name  TEXT DEFAULT '',
-                phone         TEXT DEFAULT '',
-                city          TEXT DEFAULT '',
-                state         TEXT DEFAULT '',
-                country       TEXT DEFAULT '',
+                id           BIGSERIAL PRIMARY KEY,
+                email        TEXT UNIQUE,
+                contact_name TEXT DEFAULT '',
+                company_name TEXT DEFAULT '',
+                phone        TEXT DEFAULT '',
+                city         TEXT DEFAULT '',
+                state        TEXT DEFAULT '',
+                country      TEXT DEFAULT '',
                 business_type TEXT DEFAULT '',
                 business_details TEXT DEFAULT '',
-                source        TEXT DEFAULT 'manual',
-                created_at    TIMESTAMPTZ DEFAULT NOW()
+                source       TEXT DEFAULT 'manual',
+                created_at   TIMESTAMPTZ DEFAULT NOW()
             )
         """)
-        for idx_sql in [
-            "CREATE INDEX IF NOT EXISTS leads_email_idx   ON leads(email)",
-            "CREATE INDEX IF NOT EXISTS leads_company_idx ON leads(lower(company_name))",
-            "CREATE INDEX IF NOT EXISTS leads_city_idx    ON leads(lower(city))",
-            "CREATE INDEX IF NOT EXISTS leads_btype_idx   ON leads(lower(business_type))",
-        ]:
-            await conn.execute(idx_sql)
     finally:
         await conn.close()
 
@@ -140,24 +135,25 @@ async def upsert_lead(conn, data: dict) -> tuple[int, bool]:
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
-
 @router.get("/search")
 async def search_leads(q: str = Query(..., min_length=1), limit: int = Query(50, le=200)):
-    await ensure_table()
     conn = await get_conn()
     try:
+        # 1. Use COALESCE so NULL values from your 1M rows don't crash the search
+        # 2. Add a 'timeout' to the fetch so it doesn't hang the server
         term = f"%{q.lower()}%"
         rows = await conn.fetch(
             """SELECT id, email, contact_name, company_name, phone,
-                      city, state, business_type, business_details
+                      COALESCE(city, '') as city, 
+                      COALESCE(state, '') as state, 
+                      COALESCE(business_type, '') as business_type, 
+                      COALESCE(business_details, '') as business_details
                FROM leads
-               WHERE lower(company_name)  ILIKE $1
-                  OR lower(city)          ILIKE $1
-                  OR lower(business_type) ILIKE $1
-                  OR lower(email)         ILIKE $1
-                  OR lower(contact_name)  ILIKE $1
+               WHERE (lower(email) LIKE $1 
+                  OR lower(company_name) LIKE $1 
+                  OR lower(contact_name) LIKE $1)
                LIMIT $2""",
-            term, limit
+            term, limit, timeout=25.0
         )
         return {"leads": [dict(r) for r in rows], "total": len(rows)}
     finally:
