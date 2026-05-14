@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     MONGODB_DB_NAME: str = "neolix"
 
     AIVEN_DATABASE_URL: str = ""
+    AIVEN_CA_CERT: str = ""
     GROQAPI_KEY: str = ""
 
     # SMTP (set in .env)

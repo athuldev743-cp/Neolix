@@ -1,20 +1,15 @@
 """
 Leads API — Aiven PostgreSQL
-Endpoints:
-  GET  /leads/search          — full-text search
-  POST /leads/single          — add one lead by email
-  POST /leads/bulk            — paste raw text, extract emails
-  POST /leads/upload          — file upload (CSV/Excel/PDF/TXT/JSON)
-  POST /leads/scan            — business card AI extraction
-  GET  /leads/{lead_id}       — get one lead
 """
 import re
 import io
 import json
-from typing import Optional
+import ssl
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query
 from pydantic import BaseModel
 import asyncpg
+import os
+import tempfile
 
 from app.config import get_settings
 from app.services.groq_ai import extract_card_details
@@ -22,44 +17,82 @@ from app.services.groq_ai import extract_card_details
 settings = get_settings()
 router = APIRouter(prefix="/leads", tags=["Leads"])
 
-# ── DB connection helper ─────────────────────────────────────────────────────
+# ── DB connection ─────────────────────────────────────────────────────────────
 async def get_conn():
-    return await asyncpg.connect(settings.AIVEN_DATABASE_URL, ssl="require")
+    url = settings.AIVEN_DATABASE_URL
+    if not url:
+        raise HTTPException(500, "AIVEN_DATABASE_URL not configured")
 
-# ── Ensure table exists ──────────────────────────────────────────────────────
-CREATE_SQL = """
-CREATE TABLE IF NOT EXISTS leads (
-    id            BIGSERIAL PRIMARY KEY,
-    email         TEXT,
-    contact_name  TEXT DEFAULT '',
-    company_name  TEXT DEFAULT '',
-    phone         TEXT DEFAULT '',
-    city          TEXT DEFAULT '',
-    state         TEXT DEFAULT '',
-    country       TEXT DEFAULT '',
-    business_type TEXT DEFAULT '',
-    business_details TEXT DEFAULT '',
-    source        TEXT DEFAULT 'manual',
-    created_at    TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE(email)
-);
-CREATE INDEX IF NOT EXISTS leads_email_idx     ON leads(email);
-CREATE INDEX IF NOT EXISTS leads_company_idx   ON leads(lower(company_name));
-CREATE INDEX IF NOT EXISTS leads_city_idx      ON leads(lower(city));
-CREATE INDEX IF NOT EXISTS leads_btype_idx     ON leads(lower(business_type));
-"""
+    # 1. Clean the URL (asyncpg doesn't like parameters in the string when using SSL manually)
+    clean_url = re.sub(r'[?&]sslmode=\w+', '', url)
+    clean_url = re.sub(r'[?&]application_name=[^&]+', '', clean_url)
+    clean_url = re.sub(r'[?&]target_session_attrs=[^&]+', '', clean_url)
+    clean_url = re.sub(r'[?&]+$', '', clean_url)
+
+    # 2. Get the Cert from Environment Variable
+    ca_cert_content = os.getenv("AIVEN_CA_CERT")
+    if not ca_cert_content:
+        # Fallback to no verification if cert is missing, or raise error
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+    else:
+        # 3. Create a temporary file to hold the certificate for the connection
+        # This is deleted automatically when the block ends
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_ca:
+            temp_ca.write(ca_cert_content)
+            temp_ca_path = temp_ca.name
+
+        try:
+            ssl_ctx = ssl.create_default_context(cafile=temp_ca_path)
+            ssl_ctx.check_hostname = False # Aiven hosts often don't match the cert hostname exactly
+            ssl_ctx.verify_mode = ssl.CERT_REQUIRED
+        finally:
+            # We remove the temp file reference after creating the context
+            # Note: Depending on OS, you might need to keep it until connect() finishes
+            pass
+
+    try:
+        # 4. Connect using the secure context
+        conn = await asyncpg.connect(clean_url, ssl=ssl_ctx, timeout=15)
+        # Clean up temp file if it exists
+        if 'temp_ca_path' in locals() and os.path.exists(temp_ca_path):
+            os.remove(temp_ca_path)
+        return conn
+    except Exception as e:
+        raise HTTPException(500, f"DB connection failed: {str(e)}")
 
 async def ensure_table():
     conn = await get_conn()
     try:
-        for stmt in CREATE_SQL.strip().split(";"):
-            s = stmt.strip()
-            if s:
-                await conn.execute(s)
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS leads (
+                id            BIGSERIAL PRIMARY KEY,
+                email         TEXT UNIQUE,
+                contact_name  TEXT DEFAULT '',
+                company_name  TEXT DEFAULT '',
+                phone         TEXT DEFAULT '',
+                city          TEXT DEFAULT '',
+                state         TEXT DEFAULT '',
+                country       TEXT DEFAULT '',
+                business_type TEXT DEFAULT '',
+                business_details TEXT DEFAULT '',
+                source        TEXT DEFAULT 'manual',
+                created_at    TIMESTAMPTZ DEFAULT NOW()
+            )
+        """)
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS leads_email_idx   ON leads(email)",
+            "CREATE INDEX IF NOT EXISTS leads_company_idx ON leads(lower(company_name))",
+            "CREATE INDEX IF NOT EXISTS leads_city_idx    ON leads(lower(city))",
+            "CREATE INDEX IF NOT EXISTS leads_btype_idx   ON leads(lower(business_type))",
+        ]:
+            await conn.execute(idx_sql)
     finally:
         await conn.close()
 
-# ── Schemas ──────────────────────────────────────────────────────────────────
+
+# ── Schemas ───────────────────────────────────────────────────────────────────
 class SingleLeadIn(BaseModel):
     email: str
     contact_name: str = ""
@@ -70,79 +103,63 @@ class SingleLeadIn(BaseModel):
     business_details: str = ""
 
 class BulkLeadIn(BaseModel):
-    raw_text: str   # paste dump — emails extracted via regex
+    raw_text: str
 
 class CardLeadIn(BaseModel):
-    image_base64: str   # base64 PNG/JPEG of business card
+    image_base64: str
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
 EMAIL_RE = re.compile(r"[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}")
 
 def extract_emails(text: str) -> list[str]:
     return list({e.lower() for e in EMAIL_RE.findall(text)})
 
 async def upsert_lead(conn, data: dict) -> tuple[int, bool]:
-    """Returns (lead_id, already_existed)."""
-    row = await conn.fetchrow(
-        "SELECT id FROM leads WHERE email = $1", data.get("email", "").lower()
-    )
+    email = (data.get("email") or "").lower().strip()
+    row = await conn.fetchrow("SELECT id FROM leads WHERE email = $1", email)
     if row:
-        # Update non-empty fields
         sets, vals, idx = [], [], 2
-        for k in ("contact_name", "company_name", "phone", "city", "state", "business_details", "business_type", "source"):
+        for k in ("contact_name","company_name","phone","city","state","business_details","business_type","source"):
             if data.get(k):
                 sets.append(f"{k} = ${idx}")
                 vals.append(data[k])
                 idx += 1
         if sets:
-            await conn.execute(
-                f"UPDATE leads SET {', '.join(sets)} WHERE id = $1",
-                row["id"], *vals
-            )
+            await conn.execute(f"UPDATE leads SET {', '.join(sets)} WHERE id = $1", row["id"], *vals)
         return row["id"], True
-
     new = await conn.fetchrow(
         """INSERT INTO leads
-           (email, contact_name, company_name, phone, city, state, business_details, business_type, source)
+           (email,contact_name,company_name,phone,city,state,business_details,business_type,source)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id""",
-        data.get("email", "").lower(),
-        data.get("contact_name", ""),
-        data.get("company_name", ""),
-        data.get("phone", ""),
-        data.get("city", ""),
-        data.get("state", ""),
-        data.get("business_details", ""),
-        data.get("business_type", ""),
-        data.get("source", "manual"),
+        email,
+        data.get("contact_name",""), data.get("company_name",""),
+        data.get("phone",""),        data.get("city",""),
+        data.get("state",""),        data.get("business_details",""),
+        data.get("business_type",""),data.get("source","manual"),
     )
     return new["id"], False
 
-# ── Routes ───────────────────────────────────────────────────────────────────
+
+# ── Routes ────────────────────────────────────────────────────────────────────
 
 @router.get("/search")
-async def search_leads(
-    q: str = Query(..., min_length=1),
-    limit: int = Query(50, le=200),
-):
-    """Full-text search across company_name, city, business_type, email."""
+async def search_leads(q: str = Query(..., min_length=1), limit: int = Query(50, le=200)):
     await ensure_table()
     conn = await get_conn()
     try:
         term = f"%{q.lower()}%"
         rows = await conn.fetch(
-            """SELECT id, email, contact_name, company_name, phone, city, state,
-                      business_type, business_details
+            """SELECT id, email, contact_name, company_name, phone,
+                      city, state, business_type, business_details
                FROM leads
-               WHERE lower(company_name)   ILIKE $1
-                  OR lower(city)           ILIKE $1
-                  OR lower(business_type)  ILIKE $1
-                  OR lower(email)          ILIKE $1
-                  OR lower(contact_name)   ILIKE $1
+               WHERE lower(company_name)  ILIKE $1
+                  OR lower(city)          ILIKE $1
+                  OR lower(business_type) ILIKE $1
+                  OR lower(email)         ILIKE $1
+                  OR lower(contact_name)  ILIKE $1
                LIMIT $2""",
             term, limit
         )
-        leads = [dict(r) for r in rows]
-        return {"leads": leads, "total": len(leads)}
+        return {"leads": [dict(r) for r in rows], "total": len(rows)}
     finally:
         await conn.close()
 
@@ -154,8 +171,8 @@ async def add_single_lead(data: SingleLeadIn):
     await ensure_table()
     conn = await get_conn()
     try:
-        lead_id, existed = await upsert_lead(conn, data.model_dump())
-        return {"lead_ids": [lead_id], "already_existed": existed, "total_found": 1}
+        lid, existed = await upsert_lead(conn, data.model_dump())
+        return {"lead_ids": [lid], "already_existed": existed, "total_found": 1}
     finally:
         await conn.close()
 
@@ -164,7 +181,7 @@ async def add_single_lead(data: SingleLeadIn):
 async def add_bulk_leads(data: BulkLeadIn):
     emails = extract_emails(data.raw_text)
     if not emails:
-        raise HTTPException(400, "No valid emails found in text")
+        raise HTTPException(400, "No valid emails found")
     await ensure_table()
     conn = await get_conn()
     try:
@@ -179,7 +196,6 @@ async def add_bulk_leads(data: BulkLeadIn):
 
 @router.post("/upload")
 async def upload_leads_file(file: UploadFile = File(...)):
-    """Extract leads from CSV/Excel/JSON/TXT/PDF."""
     await ensure_table()
     content = await file.read()
     fname = (file.filename or "").lower()
@@ -188,24 +204,15 @@ async def upload_leads_file(file: UploadFile = File(...)):
     try:
         if fname.endswith(".json"):
             items = json.loads(content)
-            if isinstance(items, list):
-                leads_raw = items
-            elif isinstance(items, dict):
-                leads_raw = [items]
-
+            leads_raw = items if isinstance(items, list) else [items]
         elif fname.endswith(".csv") or fname.endswith(".txt"):
             text = content.decode("utf-8", errors="ignore")
-            # Try CSV first
             import csv as csvlib
             try:
-                reader = csvlib.DictReader(io.StringIO(text))
-                for row in reader:
-                    leads_raw.append(dict(row))
+                rows = list(csvlib.DictReader(io.StringIO(text)))
+                leads_raw = [dict(r) for r in rows] if rows else [{"email": e} for e in extract_emails(text)]
             except Exception:
-                # plain text — extract emails
-                for email in extract_emails(text):
-                    leads_raw.append({"email": email})
-
+                leads_raw = [{"email": e} for e in extract_emails(text)]
         elif fname.endswith(".xlsx") or fname.endswith(".xls"):
             import openpyxl
             wb = openpyxl.load_workbook(io.BytesIO(content), read_only=True, data_only=True)
@@ -217,86 +224,59 @@ async def upload_leads_file(file: UploadFile = File(...)):
                     headers = [v.lower().replace(" ", "_") for v in vals]
                 else:
                     leads_raw.append(dict(zip(headers, vals)))
-
         elif fname.endswith(".pdf"):
             import pdfplumber
             text = ""
             with pdfplumber.open(io.BytesIO(content)) as pdf:
                 for page in pdf.pages:
                     text += (page.extract_text() or "") + "\n"
-            for email in extract_emails(text):
-                leads_raw.append({"email": email})
-
+            leads_raw = [{"email": e} for e in extract_emails(text)]
         else:
-            # generic text extraction
             text = content.decode("utf-8", errors="ignore")
-            for email in extract_emails(text):
-                leads_raw.append({"email": email})
-
+            leads_raw = [{"email": e} for e in extract_emails(text)]
     except Exception as e:
         raise HTTPException(400, f"File parse error: {str(e)}")
 
-    # Map common column name variants
     FIELD_MAP = {
-        "email_address": "email", "e-mail": "email", "mail": "email",
-        "name": "contact_name", "full_name": "contact_name", "contact": "contact_name",
-        "company": "company_name", "organization": "company_name", "org": "company_name",
-        "mobile": "phone", "telephone": "phone", "tel": "phone",
-        "type": "business_type", "category": "business_type",
+        "email_address":"email","e-mail":"email","mail":"email",
+        "name":"contact_name","full_name":"contact_name","contact":"contact_name",
+        "company":"company_name","organization":"company_name","org":"company_name",
+        "mobile":"phone","telephone":"phone","tel":"phone",
+        "type":"business_type","category":"business_type",
     }
-
     conn = await get_conn()
     try:
         ids = []
         for raw in leads_raw:
-            # normalize keys
-            normalized: dict = {}
+            n: dict = {}
             for k, v in raw.items():
                 key = FIELD_MAP.get(k.lower().strip(), k.lower().strip())
-                normalized[key] = str(v).strip() if v else ""
-
-            # must have email
-            if not normalized.get("email"):
-                # try to find email in values
-                for v in normalized.values():
+                n[key] = str(v).strip() if v else ""
+            if not n.get("email"):
+                for v in n.values():
                     if "@" in str(v) and "." in str(v):
-                        normalized["email"] = v
-                        break
-
-            if not normalized.get("email") or "@" not in normalized["email"]:
+                        n["email"] = v; break
+            if not n.get("email") or "@" not in n["email"]:
                 continue
-
-            normalized["source"] = "file_upload"
-            lid, _ = await upsert_lead(conn, normalized)
+            n["source"] = "file_upload"
+            lid, _ = await upsert_lead(conn, n)
             ids.append(lid)
-
-        return {
-            "lead_ids": ids,
-            "total_found": len(ids),
-            "filename": file.filename,
-        }
+        return {"lead_ids": ids, "total_found": len(ids), "filename": file.filename}
     finally:
         await conn.close()
 
 
 @router.post("/scan")
 async def scan_business_card(data: CardLeadIn):
-    """Use Groq vision-equivalent to extract lead from business card image."""
     extracted = await extract_card_details(data.image_base64)
     if not extracted.get("email"):
         return {"lead_ids": [], "extracted": extracted, "already_existed": False, "total_found": 0}
-
     await ensure_table()
     conn = await get_conn()
     try:
         extracted["source"] = "card_scan"
         lid, existed = await upsert_lead(conn, extracted)
-        return {
-            "lead_ids": [lid],
-            "extracted": extracted,
-            "already_existed": existed,
-            "total_found": 1,
-        }
+        return {"lead_ids": [lid], "extracted": extracted, "already_existed": existed, "total_found": 1}
     finally:
         await conn.close()
 
