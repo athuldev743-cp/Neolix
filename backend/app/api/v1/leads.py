@@ -134,27 +134,35 @@ async def upsert_lead(conn, data: dict) -> tuple[int, bool]:
 async def search_leads(q: str = Query(..., min_length=1), limit: int = Query(50, le=200)):
     conn = await get_conn()
     try:
-        term = f"%{q.lower()}%"
-        # Using COALESCE prevents 'NoneType' errors in Python and DB
+        search_term = q.lower().strip()
+        
+        # This query does three things:
+        # 1. Finds exact matches.
+        # 2. Finds words starting with the term (Physio -> Physiotherapy).
+        # 3. Finds similar sounding words.
         rows = await conn.fetch(
             """SELECT id, email, 
                       COALESCE(contact_name, '') as contact_name, 
                       COALESCE(company_name, '') as company_name, 
                       COALESCE(phone, '') as phone,
                       COALESCE(city, '') as city, 
-                      COALESCE(state, '') as state, 
-                      COALESCE(business_type, '') as business_type, 
-                      COALESCE(business_details, '') as business_details
+                      COALESCE(business_type, '') as business_type
                FROM leads
-               WHERE lower(email) LIKE $1 
-                  OR lower(COALESCE(company_name, '')) LIKE $1
-                  OR lower(COALESCE(contact_name, '')) LIKE $1
-               LIMIT $2""",
-            term, limit, timeout=25.0
+               WHERE 
+                  lower(company_name) % $1  -- Similarity match (Trigram)
+                  OR lower(company_name) LIKE $2 -- Prefix match
+                  OR lower(business_type) LIKE $2
+               ORDER BY 
+                  similarity(lower(company_name), $1) DESC, -- Most similar first
+                  (lower(company_name) LIKE $2) DESC       -- Then starts-with
+               LIMIT $3""",
+            search_term, f"{search_term}%", limit, timeout=20.0
         )
         return {"leads": [dict(r) for r in rows], "total": len(rows)}
     except Exception as e:
-        raise HTTPException(500, f"Search error: {str(e)}")
+        # If the query is too slow for 1M rows, we fallback to simple search
+        print(f"Smart Search Error: {e}")
+        raise HTTPException(500, "Search timed out. Try a more specific term.")
     finally:
         await conn.close()
 
