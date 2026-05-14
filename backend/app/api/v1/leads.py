@@ -136,27 +136,20 @@ async def search_leads(q: str = Query(..., min_length=1), limit: int = Query(50,
     try:
         search_term = q.lower().strip()
         
-        # We target the universal index (Name + Business Type)
         rows = await conn.fetch(
-            """SELECT id, email, 
-                      COALESCE(contact_name, '') as contact_name, 
-                      COALESCE(company_name, '') as company_name, 
-                      COALESCE(phone, '') as phone,
-                      COALESCE(business_type, '') as business_type
+            """SELECT id, email, contact_name, company_name, phone, business_type
                FROM leads
-               WHERE 
-                  (lower(company_name) || ' ' || COALESCE(lower(business_type), '')) % $1
+               WHERE (lower(company_name) || ' ' || COALESCE(lower(business_type), '')) % $1
                   OR lower(company_name) LIKE $2
                ORDER BY 
-                  -- This line forces AI Traders to be higher than Airtel
-                  (lower(company_name) = $3) DESC,
+                  -- 1. Exact matches (e.g., Company is named 'AI')
+                  (lower(company_name) = $1) DESC,
+                  -- 2. Starts with (e.g., 'AI Traders' vs 'Airtel')
                   (lower(company_name) LIKE $2) DESC,
+                  -- 3. Industry similarity (The 'Smart' part)
                   similarity(lower(company_name), $1) DESC
-               LIMIT $4""",
-            search_term,      # $1
-            f"{search_term}%", # $2
-            search_term,      # $3
-            limit             # $4
+               LIMIT $3""",
+            search_term, f"{search_term}%", limit, timeout=20.0
         )
         return {"leads": [dict(r) for r in rows], "total": len(rows)}
     finally:
