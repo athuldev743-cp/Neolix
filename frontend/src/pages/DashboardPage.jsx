@@ -1,57 +1,91 @@
 import { useState, useEffect, useContext } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Send, MessageSquare, Users, Inbox, TrendingUp,
-  Loader2, ArrowRight, Zap, CheckCircle, AlertCircle, Clock
+  Mail, Smartphone, Send, Inbox, MessageSquare,
+  ArrowRight, Loader2, Zap, TrendingUp, CheckCircle2,
+  Clock, WifiOff, Wifi
 } from 'lucide-react'
 import { campaignApi, repliesApi, waApi } from '../services/api'
 import { ProfileContext } from '../App'
 
-function StatCard({ label, value, icon: Icon, color, loading, to }) {
-  const content = (
-    <div className={`card p-5 flex items-center gap-4 ${to ? 'card-hover' : ''}`}>
-      <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
-        <Icon size={20} className="text-white" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-2xl font-bold text-slate-900 leading-none mb-1">
-          {loading ? <span className="skeleton w-10 h-6 inline-block" /> : value}
-        </p>
-        <p className="text-xs text-slate-400 font-medium">{label}</p>
-      </div>
-      {to && <ArrowRight size={16} className="text-slate-300 group-hover:text-slate-500" />}
+function StatRow({ label, value, color = 'text-slate-800', loading }) {
+  return (
+    <div className="flex items-center justify-between py-2.5 border-b border-slate-100 last:border-0">
+      <span className="text-sm text-slate-500">{label}</span>
+      {loading
+        ? <div className="skeleton w-10 h-4" />
+        : <span className={`text-sm font-bold ${color}`}>{value ?? '—'}</span>
+      }
     </div>
   )
-  return to ? <Link to={to} className="block group">{content}</Link> : content
+}
+
+function ChannelCard({ icon: Icon, title, color, to, loading, stats, connected, connectionEl }) {
+  return (
+    <div className="card p-0 overflow-hidden">
+      {/* Header */}
+      <div className={`flex items-center justify-between px-5 py-4 border-b border-slate-100 ${color}`}>
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-white/60 flex items-center justify-center">
+            <Icon size={19} />
+          </div>
+          <p className="font-bold text-base">{title}</p>
+        </div>
+        {connectionEl}
+      </div>
+
+      {/* Stats */}
+      <div className="px-5 py-1">
+        {stats.map(s => (
+          <StatRow key={s.label} {...s} loading={loading} />
+        ))}
+      </div>
+
+      {/* Footer link */}
+      <div className="px-5 py-3 border-t border-slate-100">
+        <Link to={to}
+          className="flex items-center justify-between text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors group">
+          Open {title}
+          <ArrowRight size={15} className="group-hover:translate-x-0.5 transition-transform" />
+        </Link>
+      </div>
+    </div>
+  )
 }
 
 export default function DashboardPage() {
   const { profile } = useContext(ProfileContext)
-  const [stats, setStats] = useState(null)
-  const [campaigns, setCampaigns] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [waStatus, setWaStatus] = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [emailStats, setEmail]  = useState(null)
+  const [waStats, setWA]        = useState(null)
+  const [waConnected, setWACon] = useState(false)
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [campRes, inboxRes, waRes] = await Promise.allSettled([
+        const [campRes, inboxRes, sentRes, waRes, waListRes] = await Promise.allSettled([
           campaignApi.list(),
           repliesApi.inbox('unread'),
+          repliesApi.inbox('responded'),
           waApi.status(),
+          waApi.campaignList(),
         ])
 
-        const camps = campRes.status === 'fulfilled' ? campRes.value.data : []
-        const inbox = inboxRes.status === 'fulfilled' ? inboxRes.value.data : []
-        const wa    = waRes.status === 'fulfilled'    ? waRes.value.data  : {}
-
-        setCampaigns(camps.slice(0, 5))
-        setWaStatus(wa)
-
-        const totalSent   = camps.reduce((s, c) => s + (c.sent || 0), 0)
-        const totalLeads  = camps.reduce((s, c) => s + (c.total_leads || 0), 0)
+        // Email stats
+        const camps    = campRes.status    === 'fulfilled' ? campRes.value.data    : []
+        const unread   = inboxRes.status   === 'fulfilled' ? inboxRes.value.data   : []
+        const replied  = sentRes.status    === 'fulfilled' ? sentRes.value.data    : []
+        const totalSent   = camps.reduce((s, c) => s + (c.sent   || 0), 0)
+        const totalFailed = camps.reduce((s, c) => s + (c.failed || 0), 0)
         const running     = camps.filter(c => c.status === 'running').length
-        setStats({ totalSent, totalLeads, running, unreadReplies: inbox.length, waConnected: wa.connected })
+        setEmail({ totalSent, totalFailed, running, unread: unread.length, replied: replied.length, campaigns: camps.length })
+
+        // WA stats
+        const wa     = waRes.status    === 'fulfilled' ? waRes.value.data    : {}
+        const waCamp = waListRes.status === 'fulfilled' ? waListRes.value.data : []
+        const waSent = waCamp.reduce((s, c) => s + (c.sent || 0), 0)
+        setWACon(wa.connected || false)
+        setWA({ connected: wa.connected, campaigns: waCamp.length, sent: waSent })
       } catch (e) {
         console.error(e)
       } finally {
@@ -63,110 +97,100 @@ export default function DashboardPage() {
 
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
-  const name = profile?.full_name?.split(' ')[0] || 'there'
+  const firstName = profile?.full_name?.split(' ')[0] || ''
 
   return (
-    <div className="max-w-4xl">
+    <div className="max-w-3xl">
       {/* Greeting */}
       <div className="mb-7">
-        <h1 className="text-2xl font-bold text-slate-900">
-          {greeting}, {name} 👋
+        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+          {greeting}{firstName ? `, ${firstName}` : ''} 👋
         </h1>
-        <p className="text-sm text-slate-400 mt-1">Here's what's happening with your outreach today</p>
+        <p className="text-sm text-slate-400 mt-1">Your outreach overview</p>
       </div>
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
-        <StatCard label="Emails sent"      value={stats?.totalSent?.toLocaleString() ?? '—'} icon={Send}         color="bg-blue-500"    loading={loading} to="/campaigns" />
-        <StatCard label="Active campaigns" value={stats?.running ?? '—'}                      icon={TrendingUp}   color="bg-indigo-500"  loading={loading} to="/campaigns" />
-        <StatCard label="Unread replies"   value={stats?.unreadReplies ?? '—'}                icon={Inbox}        color="bg-amber-500"   loading={loading} to="/replies" />
-        <StatCard label="WhatsApp"
-          value={waStatus?.connected ? 'Connected' : 'Offline'}
-          icon={MessageSquare}
-          color={waStatus?.connected ? 'bg-emerald-500' : 'bg-slate-400'}
-          loading={loading}
-          to="/whatsapp"
-        />
-      </div>
-
-      {/* Profile completeness */}
-      {profile && !profile.value_proposition && (
-        <div className="msg-info mb-5">
+      {/* Profile nudge */}
+      {!loading && profile && !profile.value_proposition && (
+        <div className="msg-info mb-6">
           <Zap size={16} className="text-blue-500 flex-shrink-0" />
-          <div>
-            <span className="font-semibold">Complete your profile</span>
-            {' '}— Add your value proposition and company tagline so AI can write better emails.
-            {' '}<Link to="/settings" className="text-blue-700 underline font-semibold">Go to Settings →</Link>
-          </div>
+          <span>
+            Complete your <Link to="/settings" className="font-semibold underline">Settings</Link>
+            {' '}— add your value proposition so AI writes better messages.
+          </span>
         </div>
       )}
 
-      {/* Recent campaigns */}
-      <div className="card overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
-          <p className="font-semibold text-slate-900 text-sm">Recent Campaigns</p>
-          <Link to="/campaigns" className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
-            View all <ArrowRight size={12} />
-          </Link>
-        </div>
+      {/* Two channel cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        {/* Email */}
+        <ChannelCard
+          icon={Mail}
+          title="Email"
+          color="bg-blue-50 text-blue-700"
+          to="/email"
+          loading={loading}
+          connectionEl={
+            <span className="badge-blue text-xs">
+              {emailStats?.running > 0 ? `${emailStats.running} running` : 'Ready'}
+            </span>
+          }
+          stats={[
+            { label: 'Total sent',    value: emailStats?.totalSent?.toLocaleString(), color: 'text-slate-800' },
+            { label: 'Unread replies',value: emailStats?.unread,   color: emailStats?.unread > 0 ? 'text-amber-600' : 'text-slate-800' },
+            { label: 'Replied',       value: emailStats?.replied,  color: 'text-emerald-600' },
+            { label: 'Campaigns',     value: emailStats?.campaigns, color: 'text-slate-800' },
+          ]}
+        />
 
-        {loading && (
-          <div className="flex justify-center py-8">
-            <Loader2 size={20} className="animate-spin text-blue-500" />
-          </div>
-        )}
-
-        {!loading && campaigns.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-12 text-slate-400">
-            <Send size={28} className="mb-2 text-slate-200" />
-            <p className="text-sm font-medium text-slate-600">No campaigns yet</p>
-            <Link to="/campaigns" className="btn-primary btn-sm mt-3">
-              <Send size={13} /> Create first campaign
-            </Link>
-          </div>
-        )}
-
-        {campaigns.map(c => {
-          const pct = c.total_leads > 0 ? Math.round((c.sent / c.total_leads) * 100) : 0
-          const statusIcon = c.status === 'running' ? Clock : c.status === 'completed' ? CheckCircle : AlertCircle
-          const statusColor = c.status === 'running' ? 'text-blue-500' : c.status === 'completed' ? 'text-emerald-500' : 'text-slate-400'
-          return (
-            <Link to="/campaigns" key={c.id} className="flex items-center gap-4 px-5 py-4 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-all">
-              <statusIcon size={16} className={`flex-shrink-0 ${statusColor}`} />
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-slate-800 text-sm truncate mb-1">{c.name}</p>
-                <div className="flex items-center gap-3">
-                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full max-w-[120px]">
-                    <div className="h-full bg-blue-400 rounded-full" style={{width:`${pct}%`}} />
-                  </div>
-                  <span className="text-xs text-slate-400">{pct}%</span>
-                </div>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <p className="text-sm font-semibold text-slate-900">{c.sent.toLocaleString()} <span className="text-slate-400 font-normal">/ {c.total_leads.toLocaleString()}</span></p>
-                <p className="text-xs text-slate-400">sent</p>
-              </div>
-            </Link>
-          )
-        })}
+        {/* WhatsApp */}
+        <ChannelCard
+          icon={Smartphone}
+          title="WhatsApp"
+          color="bg-emerald-50 text-emerald-700"
+          to="/whatsapp"
+          loading={loading}
+          connectionEl={
+            waConnected
+              ? <span className="badge-green flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live
+                </span>
+              : <span className="badge-gray flex items-center gap-1.5">
+                  <WifiOff size={11} /> Offline
+                </span>
+          }
+          stats={[
+            { label: 'Messages sent', value: waStats?.sent?.toLocaleString(), color: 'text-slate-800' },
+            { label: 'Campaigns',     value: waStats?.campaigns, color: 'text-slate-800' },
+            { label: 'Connection',    value: waConnected ? 'Connected' : 'Disconnected', color: waConnected ? 'text-emerald-600' : 'text-red-500' },
+          ]}
+        />
       </div>
 
       {/* Quick actions */}
-      <div className="grid grid-cols-3 gap-4 mt-5">
-        {[
-          { to: '/leads',     icon: Users,         label: 'Search Leads',         sub: '1M+ contacts',         color: 'bg-blue-50 border-blue-200' },
-          { to: '/campaigns', icon: Send,           label: 'New Campaign',         sub: 'Email outreach',       color: 'bg-indigo-50 border-indigo-200' },
-          { to: '/whatsapp',  icon: MessageSquare,  label: 'WhatsApp Outreach',    sub: 'Bulk WA campaigns',    color: 'bg-emerald-50 border-emerald-200' },
-        ].map(a => (
-          <Link key={a.to} to={a.to}
-            className={`border rounded-2xl p-4 flex items-center gap-3 hover:shadow-md transition-all group ${a.color}`}>
-            <a.icon size={20} className="text-slate-600 flex-shrink-0 group-hover:scale-110 transition-transform" />
-            <div>
-              <p className="font-semibold text-slate-800 text-sm">{a.label}</p>
-              <p className="text-xs text-slate-500">{a.sub}</p>
-            </div>
-          </Link>
-        ))}
+      <div className="mt-6 grid grid-cols-2 gap-4">
+        <Link to="/email"
+          className="card-hover p-4 flex items-center gap-3 group">
+          <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">
+            <Send size={17} className="text-blue-600" />
+          </div>
+          <div>
+            <p className="font-semibold text-slate-800 text-sm">New Email Campaign</p>
+            <p className="text-xs text-slate-400">AI-personalised outreach</p>
+          </div>
+          <ArrowRight size={15} className="text-slate-300 ml-auto group-hover:text-slate-500 transition-colors" />
+        </Link>
+
+        <Link to="/whatsapp"
+          className="card-hover p-4 flex items-center gap-3 group">
+          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
+            <MessageSquare size={17} className="text-emerald-600" />
+          </div>
+          <div>
+            <p className="font-semibold text-slate-800 text-sm">New WA Campaign</p>
+            <p className="text-xs text-slate-400">Bulk WhatsApp outreach</p>
+          </div>
+          <ArrowRight size={15} className="text-slate-300 ml-auto group-hover:text-slate-500 transition-colors" />
+        </Link>
       </div>
     </div>
   )
