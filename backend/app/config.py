@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # SMTP (set in .env)
     SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
+    SMTP_PORT: int = 465
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
 
