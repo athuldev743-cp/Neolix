@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     SMTP_PORT: int = 465
     SMTP_USER: str = ""
     SMTP_PASSWORD: str = ""
+    RESEND_API_KEY: str = ""
 
     ALLOWED_ORIGINS: str = "https://neolix-sage.vercel.app,http://localhost:5173"
 
