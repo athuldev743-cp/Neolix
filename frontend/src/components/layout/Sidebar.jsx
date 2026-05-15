@@ -7,10 +7,10 @@ import clsx from 'clsx'
 import { ProfileContext } from '../../App'
 
 const nav = [
-  { path: '/',          icon: LayoutDashboard, label: 'Dashboard' },
-  { path: '/email',     icon: Mail,            label: 'Email'     },
-  { path: '/whatsapp',  icon: Smartphone,      label: 'WhatsApp'  },
-  { path: '/settings',  icon: Settings,        label: 'Settings'  },
+  { path: '/',         icon: LayoutDashboard, label: 'Dashboard' },
+  { path: '/email',    icon: Mail,            label: 'Email'     },
+  { path: '/whatsapp', icon: Smartphone,      label: 'WhatsApp'  },
+  { path: '/settings', icon: Settings,        label: 'Settings'  },
 ]
 
 export default function Sidebar() {
@@ -58,7 +58,7 @@ export default function Sidebar() {
         className={({ isActive }) => clsx('sidebar-profile', isActive && 'sidebar-profile-active')}
       >
         <div className="sidebar-avatar">
-          {loading ? '…' : (profile?.full_name?.slice(0,2).toUpperCase() || 'ME')}
+          {loading ? '…' : (profile?.full_name?.slice(0, 2).toUpperCase() || 'ME')}
         </div>
         <div className="sidebar-profile-info">
           <p className="sidebar-profile-name">

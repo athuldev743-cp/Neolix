@@ -246,10 +246,15 @@ function CampaignCreate({ onBack, onDone }) {
                 <button onClick={async () => {
                   setAiLoading(true)
                   try {
-                    const { data } = await campaignApi.preview({ subject:'', body:'', lead_id: ids[0]||0, personalise:false })
+                    const { data } = await campaignApi.preview({
+                      subject: '', body: '', lead_id: 0,
+                      personalise: false,
+                      generate_template: true,
+                      context_hint: form.campaign_name || 'cold outreach to business leads',
+                    })
                     if (data.subject) setForm(p => ({...p, subject_template: data.subject}))
                     if (data.body)    setForm(p => ({...p, body_template: data.body}))
-                  } catch {} finally { setAiLoading(false) }
+                  } catch (e) { toast.error('AI generation failed') } finally { setAiLoading(false) }
                 }} disabled={aiLoading} className="btn-ghost btn-sm text-blue-600 text-xs">
                   {aiLoading ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />} AI generate
                 </button>

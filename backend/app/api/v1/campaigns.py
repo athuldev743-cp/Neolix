@@ -1,21 +1,18 @@
 """
 Email Campaign API
-POST /campaigns/create      — create campaign + enqueue leads
-GET  /campaigns/list        — list all campaigns
-GET  /campaigns/{id}        — campaign detail + leads preview
-POST /campaigns/preview     — live preview for one lead
-POST /campaigns/run-queue   — internal: process today's queue batch (called by scheduler)
 """
 import asyncio
 import random
-from datetime import datetime, timezone, timedelta
+import re
+import ssl
+from datetime import datetime, timezone
 from typing import Optional, List
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from beanie import PydanticObjectId
 
 from app.models.email_campaign import EmailCampaign, EmailQueueItem, LeadSnapshot
-from app.services.groq_ai import personalise_email, get_profile_context
+from app.services.groq_ai import personalise_email, generate_email_template
 from app.services.email_sender import send_email
 from app.models.user_profile import UserProfile
 
@@ -25,7 +22,7 @@ from app.config import get_settings
 settings = get_settings()
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
 
-# ── Schemas ──────────────────────────────────────────────────────────────────
+# ── Schemas ───────────────────────────────────────────────────────────────────
 class CampaignCreateIn(BaseModel):
     campaign_name: str
     subject_template: str
@@ -33,17 +30,30 @@ class CampaignCreateIn(BaseModel):
     lead_ids: List[int]
     personalise: bool = True
     daily_limit: int = 100
-    send_order: str = "as_selected"   # as_selected | random
+    send_order: str = "as_selected"
 
 class PreviewIn(BaseModel):
     subject: str
     body: str
     lead_id: int
     personalise: bool = True
+    generate_template: bool = False   # if True, ignore subject/body and generate fresh
+    context_hint: str = ""
 
-# ── DB helper ────────────────────────────────────────────────────────────────
+# ── DB helper — same SSL fix as leads.py ──────────────────────────────────────
 async def pg_conn():
-    return await asyncpg.connect(settings.AIVEN_DATABASE_URL, ssl="require")
+    url = settings.AIVEN_DATABASE_URL
+    if not url:
+        raise HTTPException(500, "AIVEN_DATABASE_URL not configured")
+    clean_url = re.sub(r'[?&](sslmode|application_name|target_session_attrs)=\w+', '', url)
+    clean_url = clean_url.rstrip('?&')
+    ssl_ctx = ssl.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl.CERT_NONE
+    try:
+        return await asyncpg.connect(clean_url, ssl=ssl_ctx, timeout=15)
+    except Exception as e:
+        raise HTTPException(500, f"DB connection failed: {str(e)}")
 
 async def fetch_leads(lead_ids: list[int]) -> list[dict]:
     if not lead_ids:
@@ -65,10 +75,6 @@ async def create_campaign(data: CampaignCreateIn, bg: BackgroundTasks):
         raise HTTPException(400, "No leads provided")
 
     leads = await fetch_leads(data.lead_ids)
-    if not leads:
-        raise HTTPException(400, "None of the provided lead IDs exist")
-
-    # Filter leads with email
     valid = [l for l in leads if l.get("email")]
     if not valid:
         raise HTTPException(400, "None of the selected leads have an email address")
@@ -87,7 +93,6 @@ async def create_campaign(data: CampaignCreateIn, bg: BackgroundTasks):
     if data.send_order == "random":
         random.shuffle(valid)
 
-    # Assign leads to day batches
     limit = campaign.daily_limit
     queue_items = []
     for i, lead in enumerate(valid):
@@ -106,8 +111,6 @@ async def create_campaign(data: CampaignCreateIn, bg: BackgroundTasks):
         queue_items.append(item)
 
     await EmailQueueItem.insert_many(queue_items)
-
-    # Start sending day 0 in background
     bg.add_task(process_campaign_day, str(campaign.id), 0)
 
     return {
@@ -118,13 +121,8 @@ async def create_campaign(data: CampaignCreateIn, bg: BackgroundTasks):
         "days_needed": (len(valid) + limit - 1) // limit,
     }
 
-
 # ── Queue processor ───────────────────────────────────────────────────────────
 async def process_campaign_day(campaign_id: str, day: int):
-    """
-    Send all pending items for a given day with human-like random delays.
-    After finishing, schedule next day's batch (24h later, simulated via asyncio.sleep in dev).
-    """
     campaign = await EmailCampaign.get(PydanticObjectId(campaign_id))
     if not campaign:
         return
@@ -142,8 +140,7 @@ async def process_campaign_day(campaign_id: str, day: int):
         EmailQueueItem.status == "pending",
     ).to_list()
 
-    sent = 0
-    failed = 0
+    sent = failed = 0
 
     for item in items:
         try:
@@ -156,8 +153,12 @@ async def process_campaign_day(campaign_id: str, day: int):
                     item.lead.business_details,
                 )
             else:
-                subject = campaign.subject_template.replace("{lead_name}", item.lead.name or "there").replace("{lead_company}", item.lead.company or "your company")
-                body    = campaign.body_template.replace("{lead_name}", item.lead.name or "there").replace("{lead_company}", item.lead.company or "your company")
+                subject = campaign.subject_template \
+                    .replace("{lead_name}", item.lead.name or "there") \
+                    .replace("{lead_company}", item.lead.company or "your company")
+                body = campaign.body_template \
+                    .replace("{lead_name}", item.lead.name or "there") \
+                    .replace("{lead_company}", item.lead.company or "your company")
 
             await send_email(
                 to_email=item.lead.email,
@@ -176,20 +177,14 @@ async def process_campaign_day(campaign_id: str, day: int):
             sent += 1
 
         except Exception as e:
-            await item.update({"$set": {
-                "status": "failed",
-                "error": str(e)[:200],
-            }})
+            await item.update({"$set": {"status": "failed", "error": str(e)[:200]}})
             failed += 1
 
-        # Human-like random delay: 60–180 seconds with some variance
         delay = random.uniform(60, 180) + random.choice([0, 0, 0, 30, 60])
         await asyncio.sleep(delay)
 
-    # Update campaign counters
     await campaign.update({"$inc": {"sent_count": sent, "failed_count": failed}})
 
-    # Check if more days pending
     next_day_count = await EmailQueueItem.find(
         EmailQueueItem.campaign_id == campaign_id,
         EmailQueueItem.scheduled_day == day + 1,
@@ -197,15 +192,12 @@ async def process_campaign_day(campaign_id: str, day: int):
     ).count()
 
     if next_day_count > 0:
-        # Schedule next batch in 24 hours
         await asyncio.sleep(86400)
         await process_campaign_day(campaign_id, day + 1)
     else:
-        # All done
         await EmailCampaign.find_one(EmailCampaign.id == campaign.id).update(
             {"$set": {"status": "completed"}}
         )
-
 
 # ── List campaigns ────────────────────────────────────────────────────────────
 @router.get("/list")
@@ -225,7 +217,6 @@ async def list_campaigns():
         for c in campaigns
     ]
 
-
 # ── Campaign detail ───────────────────────────────────────────────────────────
 @router.get("/{campaign_id}")
 async def get_campaign(campaign_id: str):
@@ -233,12 +224,10 @@ async def get_campaign(campaign_id: str):
     if not campaign:
         raise HTTPException(404, "Campaign not found")
 
-    # Latest 50 queue items for preview table
     items = await EmailQueueItem.find(
         EmailQueueItem.campaign_id == campaign_id
     ).sort("-created_at").limit(50).to_list()
 
-    # Aggregate failure reasons
     fail_reasons: dict[str, int] = {}
     for item in items:
         if item.status == "failed" and item.error:
@@ -269,30 +258,54 @@ async def get_campaign(campaign_id: str):
         "created_at": campaign.created_at.isoformat() if campaign.created_at else None,
     }
 
-
-# ── Preview one lead ──────────────────────────────────────────────────────────
+# ── Preview / AI generate ─────────────────────────────────────────────────────
 @router.post("/preview")
 async def preview_email(data: PreviewIn):
-    conn = await pg_conn()
-    try:
-        row = await conn.fetchrow(
-            "SELECT contact_name, company_name, business_details FROM leads WHERE id = $1",
-            data.lead_id
-        )
-    finally:
-        await conn.close()
+    # ── Mode 1: AI template generation (no lead needed) ──────────────────────
+    if data.generate_template:
+        hint = data.context_hint or "cold outreach to business leads"
+        subject, body = await generate_email_template(hint)
+        return {
+            "subject": subject,
+            "body": body,
+            "lead_name": "",
+            "lead_company": "",
+        }
 
-    if not row:
-        raise HTTPException(404, "Lead not found")
+    # ── Mode 2: Preview for a specific lead ───────────────────────────────────
+    name = company = biz = ""
 
-    name    = row["contact_name"] or ""
-    company = row["company_name"] or ""
-    biz     = row["business_details"] or ""
+    # Only query DB if we have a real lead_id
+    if data.lead_id and data.lead_id > 0:
+        conn = await pg_conn()
+        try:
+            row = await conn.fetchrow(
+                "SELECT contact_name, company_name, business_details FROM leads WHERE id = $1",
+                data.lead_id
+            )
+            if row:
+                name    = row["contact_name"]    or ""
+                company = row["company_name"]    or ""
+                biz     = row["business_details"] or ""
+        finally:
+            await conn.close()
 
-    if data.personalise:
-        subject, body = await personalise_email(data.subject, data.body, name, company, biz)
+    subject = data.subject or ""
+    body    = data.body    or ""
+
+    if not subject and not body:
+        # Generate fresh template when both are empty
+        subject, body = await generate_email_template("cold outreach")
+
+    if data.personalise and (name or company):
+        subject, body = await personalise_email(subject, body, name, company, biz)
     else:
-        subject = data.subject.replace("{lead_name}", name or "there").replace("{lead_company}", company or "your company")
-        body    = data.body.replace("{lead_name}",    name or "there").replace("{lead_company}", company or "your company")
+        subject = subject.replace("{lead_name}", name or "there").replace("{lead_company}", company or "your company")
+        body    = body.replace("{lead_name}",    name or "there").replace("{lead_company}", company or "your company")
 
-    return {"subject": subject, "body": body, "lead_name": name, "lead_company": company}
+    return {
+        "subject": subject,
+        "body": body,
+        "lead_name": name,
+        "lead_company": company,
+    }

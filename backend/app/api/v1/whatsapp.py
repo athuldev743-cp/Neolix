@@ -187,9 +187,17 @@ async def wa_respond(data: WARespondIn):
 
 # ── Campaign ──────────────────────────────────────────────────────────────────
 import asyncpg
+import ssl as ssl_lib
+import re as re_lib
 
 async def pg_conn():
-    return await asyncpg.connect(settings.AIVEN_DATABASE_URL, ssl="require")
+    url = settings.AIVEN_DATABASE_URL
+    clean_url = re_lib.sub(r'[?&](sslmode|application_name|target_session_attrs)=\w+', '', url)
+    clean_url = clean_url.rstrip('?&')
+    ssl_ctx = ssl_lib.create_default_context()
+    ssl_ctx.check_hostname = False
+    ssl_ctx.verify_mode = ssl_lib.CERT_NONE
+    return await asyncpg.connect(clean_url, ssl=ssl_ctx, timeout=15)
 
 @router.post("/campaign/create")
 async def wa_campaign_create(data: WACampaignIn, bg: BackgroundTasks):
