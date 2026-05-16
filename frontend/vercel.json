@@ -4,6 +4,6 @@
   "framework": "vite",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "env": {
-    "VITE_API_URL": "https://your-neolix-api.onrender.com/api/v1"
+    "VITE_API_URL": "https://neolix-neolix-backend.hf.space/api/v1"
   }
 }
