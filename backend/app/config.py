@@ -9,23 +9,21 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
-    APP_NAME: str = "Neolix Hub"
-    APP_ENV: str = "development"
+    APP_NAME:   str = "Neolix Hub"
+    APP_ENV:    str = "production"
     SECRET_KEY: str = "change-me"
 
-    MONGODB_URL: str = "mongodb://localhost:27017"
+    MONGODB_URL:     str = "mongodb://localhost:27017"
     MONGODB_DB_NAME: str = "neolix"
 
     AIVEN_DATABASE_URL: str = ""
-    AIVEN_CA_CERT: str = ""
-    GROQAPI_KEY: str = ""
+    GROQAPI_KEY:        str = ""
 
-    # SMTP (set in .env)
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 465
-    SMTP_USER: str = ""
+    # SMTP — works on HF Spaces (no port blocking)
+    SMTP_HOST:     str = "smtp.gmail.com"
+    SMTP_PORT:     int = 587
+    SMTP_USER:     str = ""
     SMTP_PASSWORD: str = ""
-    RESEND_API_KEY: str = ""
 
     ALLOWED_ORIGINS: str = "https://neolix-sage.vercel.app,http://localhost:5173"
 
