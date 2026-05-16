@@ -13,3 +13,4 @@ frontend/.env
 
 backend/ca.pem
 backend/data.xlsx
+backend/final_clean_leads.csv

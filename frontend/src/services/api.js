@@ -1,26 +1,23 @@
 import axios from 'axios'
 
-const BASE = import.meta.env.VITE_API_URL || 'https://neolix.onrender.com/api/v1'
+const BASE = import.meta.env.VITE_API_URL || 'https://neolix-neolix-backend.hf.space/api/v1'
 
 const api = axios.create({
   baseURL: BASE,
-  timeout: 90000,   // 90s — Render free tier cold start can take 50-60s
+  timeout: 120000,
 })
 
-// ── Retry interceptor — retries once on timeout / network error ──────────────
+// Retry once on timeout / network error / 5xx
 api.interceptors.response.use(
   res => res,
   async err => {
     const config = err.config
     if (config._retried) return Promise.reject(err)
-
-    const isTimeout  = err.code === 'ECONNABORTED'
-    const isNetwork  = !err.response
-    const is5xx      = err.response?.status >= 500
-
+    const isTimeout = err.code === 'ECONNABORTED'
+    const isNetwork = !err.response
+    const is5xx     = err.response?.status >= 500
     if (isTimeout || isNetwork || is5xx) {
       config._retried = true
-      // wait 3s then retry once
       await new Promise(r => setTimeout(r, 3000))
       return api(config)
     }
@@ -50,8 +47,8 @@ export const leadsApi = {
       timeout: 120000,
     })
   },
-  scanCard:   (image_base64) => api.post('/leads/scan', { image_base64 }),
-  get:        (id)            => api.get(`/leads/${id}`),
+  scanCard: (image_base64) => api.post('/leads/scan', { image_base64 }),
+  get:      (id)           => api.get(`/leads/${id}`),
 }
 
 // ── Campaigns ─────────────────────────────────────────────────────────────────
@@ -64,11 +61,11 @@ export const campaignApi = {
 
 // ── Replies ───────────────────────────────────────────────────────────────────
 export const repliesApi = {
-  inbox:   (status)   => api.get('/replies/inbox',  { params: status ? { status } : {} }),
-  sent:    (cid)      => api.get('/replies/sent',   { params: cid ? { campaign_id: cid } : {} }),
-  thread:  (id)       => api.get(`/replies/${id}`),
-  respond: (id, data) => api.post(`/replies/${id}/respond`, data),
-  poll:    ()         => api.post('/replies/poll'),
+  inbox:   (status)    => api.get('/replies/inbox',  { params: status ? { status } : {} }),
+  sent:    (cid)       => api.get('/replies/sent',   { params: cid ? { campaign_id: cid } : {} }),
+  thread:  (id)        => api.get(`/replies/${id}`),
+  respond: (id, data)  => api.post(`/replies/${id}/respond`, data),
+  poll:    ()          => api.post('/replies/poll'),
 }
 
 // ── WhatsApp ──────────────────────────────────────────────────────────────────
