@@ -1,46 +1,52 @@
 """
-Email sender — aiosmtplib SMTP.
-HF Spaces has no port restrictions — 587 STARTTLS and 465 SSL both work.
-Reads credentials from env vars (set in HF Space Secrets).
+Email sender — Gmail API via OAuth2.
+Uses HTTPS (port 443) — works on HF Space, Render, everywhere.
+No SMTP port restrictions.
+
+Required env vars:
+  GMAIL_CLIENT_ID
+  GMAIL_CLIENT_SECRET
+  GMAIL_REFRESH_TOKEN
+  GMAIL_SENDER        (your gmail address)
 """
-import aiosmtplib
+import base64
+import httpx
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.utils import formataddr
 from app.config import get_settings
 from app.models.user_profile import UserProfile
 
 settings = get_settings()
 
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+GMAIL_SEND_URL   = "https://gmail.googleapis.com/gmail/v1/users/me/messages/send"
 
-async def _get_smtp_config() -> tuple[str, int, str, str, str]:
-    """
-    Returns (host, port, user, password, from_name).
-    Env vars always win. Profile SMTP is fallback only.
-    """
-    host     = settings.SMTP_HOST     or "smtp.gmail.com"
-    port     = settings.SMTP_PORT     or 587
-    user     = settings.SMTP_USER     or ""
-    password = settings.SMTP_PASSWORD or ""
 
-    # Fallback to profile SMTP if env not set
-    if not user:
-        profile = await UserProfile.get_profile()
-        if profile.smtp and profile.smtp.user:
-            host     = profile.smtp.host     or host
-            port     = profile.smtp.port     or port
-            user     = profile.smtp.user
-            password = profile.smtp.password
+async def _get_access_token() -> str:
+    """Exchange refresh token for a fresh access token."""
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(
+            GOOGLE_TOKEN_URL,
+            data={
+                "client_id":     settings.GMAIL_CLIENT_ID,
+                "client_secret": settings.GMAIL_CLIENT_SECRET,
+                "refresh_token": settings.GMAIL_REFRESH_TOKEN,
+                "grant_type":    "refresh_token",
+            },
+        )
+    data = resp.json()
+    if "access_token" not in data:
+        raise ValueError(f"Failed to get access token: {data}")
+    return data["access_token"]
 
-    # From name from profile
-    from_name = user
-    try:
-        profile   = await UserProfile.get_profile()
-        from_name = profile.full_name or profile.company_name or user
-    except Exception:
-        pass
 
-    return host, port, user, password, from_name
+async def _get_sender_info() -> tuple[str, str, str]:
+    """Returns (from_email, from_name, signature_html)."""
+    profile    = await UserProfile.get_profile()
+    from_email = settings.GMAIL_SENDER or profile.email or ""
+    from_name  = profile.full_name or profile.company_name or from_email
+    signature  = profile.email_signature_html or ""
+    return from_email, from_name, signature
 
 
 async def send_email(
@@ -50,24 +56,21 @@ async def send_email(
     body_text: str,
     signature_html: str = "",
 ) -> None:
-    """
-    Send a single email. Raises on failure.
-    Port 465 → SSL. Port 587 → STARTTLS.
-    """
-    host, port, user, password, from_name = await _get_smtp_config()
+    """Send email via Gmail API. Raises on failure."""
+    if not settings.GMAIL_CLIENT_ID:
+        raise ValueError("Gmail API not configured. Set GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN, GMAIL_SENDER in secrets.")
 
-    if not user or not password:
-        raise ValueError(
-            "SMTP credentials not configured. "
-            "Set SMTP_USER and SMTP_PASSWORD in HF Space Secrets."
-        )
+    from_email, from_name, profile_sig = await _get_sender_info()
+    if not from_email:
+        raise ValueError("GMAIL_SENDER not set in HF Space secrets.")
 
-    # Build message
+    sig = signature_html or profile_sig
+
+    # Build MIME message
     msg = MIMEMultipart("alternative")
-    msg["Subject"]  = subject
-    msg["From"]     = formataddr((from_name, user))
-    msg["To"]       = formataddr((to_name or to_email, to_email))
-    msg["Reply-To"] = user
+    msg["Subject"] = subject
+    msg["From"]    = f"{from_name} <{from_email}>"
+    msg["To"]      = f"{to_name} <{to_email}>" if to_name else to_email
 
     msg.attach(MIMEText(body_text, "plain", "utf-8"))
 
@@ -77,51 +80,56 @@ async def send_email(
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.7;max-width:600px;margin:0 auto;padding:20px;">
   <div style="margin-bottom:24px;">{body_html}</div>
-  {f'<div style="border-top:1px solid #eee;padding-top:16px;margin-top:16px;">{signature_html}</div>' if signature_html else ''}
+  {f'<div style="border-top:1px solid #eee;padding-top:16px;margin-top:16px;">{sig}</div>' if sig else ''}
 </body>
 </html>"""
     msg.attach(MIMEText(full_html, "html", "utf-8"))
 
-    if port == 465:
-        await aiosmtplib.send(
-            msg,
-            hostname=host,
-            port=port,
-            username=user,
-            password=password,
-            use_tls=True,
+    # Encode as base64url for Gmail API
+    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode("utf-8")
+
+    # Get fresh access token
+    access_token = await _get_access_token()
+
+    # Send via Gmail API
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.post(
+            GMAIL_SEND_URL,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type":  "application/json",
+            },
+            json={"raw": raw},
         )
-    else:
-        # 587 STARTTLS — works on HF Spaces
-        await aiosmtplib.send(
-            msg,
-            hostname=host,
-            port=port,
-            username=user,
-            password=password,
-            start_tls=True,
-        )
+
+    if resp.status_code not in (200, 201):
+        err = resp.json() if "application/json" in resp.headers.get("content-type", "") else resp.text
+        raise ValueError(f"Gmail API error {resp.status_code}: {err}")
 
 
 async def test_smtp_connection() -> dict:
-    """Test SMTP without sending."""
+    """Test Gmail API credentials — called from Settings → Test connection."""
+    if not settings.GMAIL_CLIENT_ID:
+        return {"ok": False, "error": "Gmail API credentials not configured in HF Space secrets"}
+
     try:
-        host, port, user, password, _ = await _get_smtp_config()
+        access_token = await _get_access_token()
 
-        if not user:
-            return {"ok": False, "error": "SMTP credentials not configured"}
+        # Test by fetching Gmail profile
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://gmail.googleapis.com/gmail/v1/users/me/profile",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
 
-        smtp = aiosmtplib.SMTP(hostname=host, port=port)
-
-        if port == 465:
-            await smtp.connect(use_tls=True)
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "ok": True,
+                "message": f"Gmail API connected. Sending from: {data.get('emailAddress', settings.GMAIL_SENDER)}"
+            }
         else:
-            await smtp.connect()
-            await smtp.starttls()
-
-        await smtp.login(user, password)
-        await smtp.quit()
-        return {"ok": True, "message": f"Connected as {user} on port {port}"}
+            return {"ok": False, "error": f"Gmail API returned {resp.status_code}: {resp.text}"}
 
     except Exception as e:
         return {"ok": False, "error": str(e)}

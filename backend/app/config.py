@@ -19,7 +19,13 @@ class Settings(BaseSettings):
     AIVEN_DATABASE_URL: str = ""
     GROQAPI_KEY:        str = ""
 
-    # SMTP — works on HF Spaces (no port blocking)
+    # Gmail API (replaces SMTP — works on HF Space, Render, everywhere)
+    GMAIL_CLIENT_ID:     str = ""
+    GMAIL_CLIENT_SECRET: str = ""
+    GMAIL_REFRESH_TOKEN: str = ""
+    GMAIL_SENDER:        str = ""   # your gmail address
+
+    # SMTP kept for reference only — not used when Gmail API is configured
     SMTP_HOST:     str = "smtp.gmail.com"
     SMTP_PORT:     int = 587
     SMTP_USER:     str = ""

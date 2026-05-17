@@ -1,7 +1,6 @@
 """
-Groq AI service.
-Every function pulls the full user profile from MongoDB and injects it
-into the system prompt so generated emails/messages are rich and personalised.
+Groq AI service — updated to use current supported models.
+llama3-70b-8192 was decommissioned — now using llama-3.3-70b-versatile.
 """
 import re
 import json
@@ -11,6 +10,10 @@ from app.models.user_profile import UserProfile
 
 settings = get_settings()
 
+# Current supported Groq models (as of 2025)
+GROQ_MODEL      = "llama-3.3-70b-versatile"
+GROQ_MODEL_FAST = "llama-3.1-8b-instant"
+
 
 def _client() -> AsyncGroq | None:
     key = settings.GROQAPI_KEY
@@ -18,7 +21,6 @@ def _client() -> AsyncGroq | None:
 
 
 async def get_profile_context() -> dict:
-    """Pull full profile from MongoDB. Called before every AI generation."""
     p = await UserProfile.get_profile()
     return {
         "sender_name":          p.full_name          or "the sender",
@@ -50,30 +52,24 @@ def _simple_replace(text: str, lead_name: str, lead_company: str) -> str:
         .replace("{lead_company}", lead_company or "your company")
 
 
-# ── Generate fresh template ───────────────────────────────────────────────────
 async def generate_email_template(context_hint: str = "") -> tuple[str, str]:
-    """
-    Generate a subject + body template using full profile context.
-    Called when user clicks 'AI generate' on new campaign page.
-    Returns (subject, body) with {lead_name} and {lead_company} tokens.
-    """
+    """Generate subject + body template using full profile context."""
     c = _client()
     ctx = await get_profile_context()
 
-    # Fallback if Groq not configured
     if not c:
         subj = f"Quick question for {{lead_company}}"
         body = (
             f"Hi {{lead_name}},\n\n"
             f"{ctx['intro_line'] or 'I came across {lead_company} and wanted to reach out.'}\n\n"
             f"{ctx['value_proposition'] or 'We help businesses like yours grow.'}\n\n"
-            f"Would love to connect for a quick 15-minute call to explore if there's a fit.\n\n"
+            f"Would love to connect for a quick 15-minute call.\n\n"
             f"Best regards,\n{ctx['sender_name']}"
         )
         return subj, body
 
     system = f"""You are an expert B2B sales email copywriter.
-Write a cold outreach email template using the sender's profile context below.
+Write a cold outreach email template using the sender's profile below.
 
 SENDER PROFILE:
 - Name: {ctx['sender_name']}
@@ -86,27 +82,27 @@ SENDER PROFILE:
 - Website: {ctx['sender_website']}
 
 INSTRUCTIONS:
-- Use {{lead_name}} and {{lead_company}} as placeholders for the recipient
-- The email body must be 150-220 words — substantial enough to convey value
-- Open with the sender's preferred intro line if provided, adapted naturally
-- Weave in the value proposition naturally — don't just copy-paste it
-- End with a specific, low-friction call to action (quick call, demo, reply)
-- Do NOT include a signature — it is appended automatically
-- Do NOT use markdown, bullet points, or headers in the body
-- Sound like a real human wrote it, not a template
-- Context hint from user: {context_hint or 'general cold outreach'}
+- Use {{lead_name}} and {{lead_company}} as placeholders
+- Body must be 150-220 words
+- Open with sender's preferred intro line, adapted naturally
+- Weave in the value proposition naturally
+- End with a specific low-friction call to action
+- Do NOT include a signature
+- No markdown, bullet points, or headers
+- Sound like a real human wrote it
+- Context hint: {context_hint or 'general cold outreach'}
 
-Return ONLY this exact format, nothing else:
+Return ONLY:
 SUBJECT: <subject line>
 BODY:
 <email body>"""
 
     try:
         resp = await c.chat.completions.create(
-            model="llama3-70b-8192",
+            model=GROQ_MODEL,
             messages=[
                 {"role": "system", "content": system},
-                {"role": "user",   "content": f"Write the email template. Context: {context_hint or 'cold outreach to potential business clients'}"},
+                {"role": "user",   "content": f"Write the template. Context: {context_hint or 'cold outreach to business leads'}"},
             ],
             temperature=0.72,
             max_tokens=700,
@@ -121,11 +117,10 @@ BODY:
         print(f"[Groq] generate_email_template failed: {e}")
         return (
             f"Quick question for {{lead_company}}",
-            f"Hi {{lead_name}},\n\n{ctx['intro_line'] or 'I wanted to reach out regarding {lead_company}.'}\n\n{ctx['value_proposition'] or 'We have something that could help your business grow.'}\n\nWould love a quick 15-minute call.\n\nBest,\n{ctx['sender_name']}"
+            f"Hi {{lead_name}},\n\n{ctx['intro_line'] or 'I wanted to reach out regarding {lead_company}.'}\n\n{ctx['value_proposition'] or 'We have something that could help your business.'}\n\nWould love a quick 15-minute call.\n\nBest,\n{ctx['sender_name']}"
         )
 
 
-# ── Personalise existing template for one lead ────────────────────────────────
 async def personalise_email(
     subject_template: str,
     body_template: str,
@@ -133,11 +128,6 @@ async def personalise_email(
     lead_company: str,
     lead_business_details: str = "",
 ) -> tuple[str, str]:
-    """
-    Rewrite a template specifically for one lead using full profile context.
-    Returns (personalised_subject, personalised_body).
-    """
-    # Always do basic token replacement first as fallback
     subject = _simple_replace(subject_template, lead_name, lead_company)
     body    = _simple_replace(body_template,    lead_name, lead_company)
 
@@ -148,7 +138,7 @@ async def personalise_email(
     ctx = await get_profile_context()
 
     system = f"""You are a B2B sales email copywriter.
-Rewrite the provided email to be highly personalised for the specific recipient.
+Rewrite the email to be highly personalised for the specific recipient.
 
 SENDER PROFILE:
 - Name: {ctx['sender_name']}
@@ -160,14 +150,13 @@ SENDER PROFILE:
 - Tone: {_tone_label(ctx['preferred_tone'])}
 
 RULES:
-- Body must be 150-220 words — do not write a short email
-- Use the lead's business details naturally if provided — don't invent facts
-- Open in a way that shows you know something about their business
-- Weave the sender's value proposition into the email naturally
-- End with a specific, low-friction call to action
-- Do NOT include a signature
-- Do NOT use markdown, bullet points, or headers
-- Sound human and genuine, not templated
+- Body must be 150-220 words
+- Use lead's business details naturally if provided
+- Open showing you know something about their business
+- Weave value proposition in naturally
+- End with specific low-friction call to action
+- No signature, no markdown, no bullet points
+- Sound human and genuine
 
 Return ONLY:
 SUBJECT: <subject line>
@@ -185,7 +174,7 @@ Original body:
 
     try:
         resp = await c.chat.completions.create(
-            model="llama3-70b-8192",
+            model=GROQ_MODEL,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user",   "content": user_msg},
@@ -204,7 +193,6 @@ Original body:
     return subject, body
 
 
-# ── Personalise WA message ────────────────────────────────────────────────────
 async def personalise_whatsapp(
     template: str,
     lead_name: str,
@@ -219,14 +207,14 @@ async def personalise_whatsapp(
     ctx = await get_profile_context()
     try:
         resp = await c.chat.completions.create(
-            model="llama3-70b-8192",
+            model=GROQ_MODEL_FAST,
             messages=[
                 {
                     "role": "system",
                     "content": (
                         f"You are {ctx['sender_name']} from {ctx['sender_company']}. "
                         f"Rewrite this WhatsApp message to feel personal and human. "
-                        f"Keep it under 100 words. Plain text only, no markdown. "
+                        f"Under 100 words. Plain text only, no markdown. "
                         f"Tone: {_tone_label(ctx['preferred_tone'])}. "
                         f"Value we offer: {ctx['value_proposition']}."
                     ),
@@ -249,7 +237,6 @@ async def personalise_whatsapp(
         return body
 
 
-# ── Generate reply to incoming email ─────────────────────────────────────────
 async def generate_reply(
     original_email_body: str,
     incoming_reply_body: str,
@@ -258,19 +245,18 @@ async def generate_reply(
     c = _client()
     ctx = await get_profile_context()
     if not c:
-        return f"Hi {from_name},\n\nThank you for getting back to me! I'd love to connect further.\n\nBest regards,\n{ctx['sender_name']}"
+        return f"Hi {from_name},\n\nThank you for getting back to me!\n\nBest regards,\n{ctx['sender_name']}"
 
     try:
         resp = await c.chat.completions.create(
-            model="llama3-70b-8192",
+            model=GROQ_MODEL_FAST,
             messages=[
                 {
                     "role": "system",
                     "content": (
                         f"You are {ctx['sender_name']} from {ctx['sender_company']}. "
-                        f"Draft a concise, helpful reply (80-140 words). "
-                        f"No signature needed. Tone: {_tone_label(ctx['preferred_tone'])}. "
-                        f"Value we offer: {ctx['value_proposition']}."
+                        f"Draft a concise helpful reply (80-140 words). "
+                        f"No signature. Tone: {_tone_label(ctx['preferred_tone'])}."
                     ),
                 },
                 {
@@ -278,7 +264,7 @@ async def generate_reply(
                     "content": (
                         f"Our original email:\n{original_email_body}\n\n"
                         f"Their reply:\n{incoming_reply_body}\n\n"
-                        f"Write a great follow-up response to {from_name}."
+                        f"Write a great response to {from_name}."
                     ),
                 },
             ],
@@ -288,10 +274,9 @@ async def generate_reply(
         return resp.choices[0].message.content.strip()
     except Exception as e:
         print(f"[Groq] generate_reply failed: {e}")
-        return f"Hi {from_name},\n\nThanks for your reply! I'd love to discuss further.\n\nBest regards,\n{ctx['sender_name']}"
+        return f"Hi {from_name},\n\nThanks for your reply!\n\nBest,\n{ctx['sender_name']}"
 
 
-# ── Generate WA reply suggestion ──────────────────────────────────────────────
 async def generate_wa_reply(
     conversation_history: list[dict],
     from_name: str,
@@ -299,18 +284,17 @@ async def generate_wa_reply(
     c = _client()
     ctx = await get_profile_context()
     if not c:
-        return f"Hi {from_name}, thanks for reaching out! Let me get back to you shortly."
+        return f"Hi {from_name}, thanks for reaching out!"
 
     try:
         resp = await c.chat.completions.create(
-            model="llama3-70b-8192",
+            model=GROQ_MODEL_FAST,
             messages=[
                 {
                     "role": "system",
                     "content": (
                         f"You are {ctx['sender_name']} from {ctx['sender_company']}. "
-                        f"Reply to this WhatsApp conversation naturally and helpfully. "
-                        f"Keep it under 80 words. Plain text, no markdown. "
+                        f"Reply naturally. Under 80 words. Plain text, no markdown. "
                         f"Tone: {_tone_label(ctx['preferred_tone'])}."
                     ),
                 },
@@ -322,28 +306,17 @@ async def generate_wa_reply(
         return resp.choices[0].message.content.strip()
     except Exception as e:
         print(f"[Groq] generate_wa_reply failed: {e}")
-        return f"Hi {from_name}, thanks for your message! I'll follow up shortly."
+        return f"Hi {from_name}, thanks! I'll follow up shortly."
 
 
-# ── Extract business card details ─────────────────────────────────────────────
 async def extract_card_details(image_base64: str) -> dict:
-    """Extract contact info from a business card image using Groq vision."""
     c = _client()
     if not c:
         return {}
 
-    prompt = """Extract contact information from this business card image.
-Return ONLY a JSON object with these exact keys (empty string if not found):
-{
-  "email": "",
-  "contact_name": "",
-  "company_name": "",
-  "phone": "",
-  "city": "",
-  "business_type": "",
-  "website": ""
-}
-Return ONLY the JSON. No explanation, no markdown fences."""
+    prompt = """Extract contact information from this business card.
+Return ONLY a JSON object (no markdown, no explanation):
+{"email":"","contact_name":"","company_name":"","phone":"","city":"","business_type":"","website":""}"""
 
     try:
         resp = await c.chat.completions.create(
@@ -352,10 +325,7 @@ Return ONLY the JSON. No explanation, no markdown fences."""
                 {
                     "role": "user",
                     "content": [
-                        {
-                            "type":      "image_url",
-                            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
-                        },
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"}},
                         {"type": "text", "text": prompt},
                     ],
                 }
@@ -363,8 +333,7 @@ Return ONLY the JSON. No explanation, no markdown fences."""
             temperature=0.1,
             max_tokens=300,
         )
-        text = resp.choices[0].message.content.strip()
-        text = re.sub(r"```json|```", "", text).strip()
+        text = re.sub(r"```json|```", "", resp.choices[0].message.content.strip()).strip()
         return json.loads(text)
     except Exception as e:
         print(f"[Groq] extract_card_details failed: {e}")

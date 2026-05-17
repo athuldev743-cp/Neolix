@@ -82,6 +82,8 @@ export const waApi = {
   campaignCreate: (data)  => api.post('/whatsapp/campaign/create', data),
   campaignList:   ()      => api.get('/whatsapp/campaign/list'),
   campaignGet:    (id)    => api.get(`/whatsapp/campaign/${id}`),
+  campaignDetail: (id)    => api.get(`/whatsapp/campaign/${id}`),
+  preview:        (data)  => api.post('/whatsapp/preview', data),
 }
 
 export default api
