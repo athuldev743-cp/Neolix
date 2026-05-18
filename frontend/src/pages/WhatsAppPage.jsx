@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import {
   Send, Loader2, Eye, X, MessageSquare, Sparkles,
   Image, FileText, Zap, Search, Upload, CreditCard,
-  Plus, Check, ChevronRight
+  Plus, Check, ChevronRight, ClipboardList
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi, leadsApi } from '../services/api'
@@ -31,18 +31,88 @@ function TypeIcon({ id, size = 13 }) {
   return <Image size={size} />
 }
 
+/**
+ * LeadInputPanel — manual mode uses a single smart paste textarea.
+ * Paste anything:
+ *   phone=9876543210, name=John, company=Acme
+ *   or: 9876543210 | John Smith | Acme Corp
+ *   or: just a phone number
+ * Fields are parsed automatically.
+ */
 function LeadInputPanel({ selected, onSelect, onClear }) {
   const [inputMode, setInputMode] = useState('search')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [busy, setBusy] = useState(false)
   const [uploaded, setUploaded] = useState([])
-  const [mPhone, setMPhone] = useState('')
-  const [mName, setMName] = useState('')
-  const [mCompany, setMCompany] = useState('')
+  const [pasteText, setPasteText] = useState('')
+  const [parsed, setParsed] = useState(null)
   const uploadRef = useRef()
   const scanRef = useRef()
 
+  // ── Smart paste parser ────────────────────────────────────────────────────
+  const parsePaste = (text) => {
+    if (!text.trim()) { setParsed(null); return }
+
+    const result = { phone: '', name: '', company: '' }
+
+    // Try key=value format (phone=91..., name=John, company=Acme)
+    const kvMatches = text.matchAll(/(\w+)\s*[=:]\s*([^\n,;|]+)/g)
+    let kvFound = false
+    for (const m of kvMatches) {
+      const key = m[1].toLowerCase().trim()
+      const val = m[2].trim()
+      if (['phone', 'mobile', 'number', 'tel', 'ph'].includes(key))              { result.phone   = val.replace(/\D/g, ''); kvFound = true }
+      else if (['name', 'contact', 'person', 'contact_name'].includes(key))      { result.name    = val; kvFound = true }
+      else if (['company', 'org', 'organization', 'company_name'].includes(key)) { result.company = val; kvFound = true }
+    }
+
+    if (!kvFound) {
+      // Try pipe/comma/tab separated: phone | name | company
+      const parts = text.split(/[|,;\t]/).map(s => s.trim()).filter(Boolean)
+      if (parts.length >= 1) {
+        const phonePart = parts.find(p => /^\+?\d[\d\s\-]{7,}$/.test(p))
+        if (phonePart) result.phone = phonePart.replace(/\D/g, '')
+
+        const rest = parts.filter(p => p !== phonePart)
+        if (rest[0]) result.name    = rest[0]
+        if (rest[1]) result.company = rest[1]
+      }
+
+      // If still no phone, try to extract any 10+ digit number
+      if (!result.phone) {
+        const phoneMatch = text.match(/\+?(\d[\d\s\-]{9,})/)
+        if (phoneMatch) result.phone = phoneMatch[1].replace(/\D/g, '')
+      }
+
+      // If still no name, try to extract words that aren't numbers
+      if (!result.name) {
+        const words = text.replace(/\+?\d[\d\s\-]+/g, '').trim()
+        if (words) result.name = words.trim()
+      }
+    }
+
+    // Normalize phone: prepend 91 for bare 10-digit Indian numbers
+    if (result.phone && result.phone.length === 10 && ['6', '7', '8', '9'].includes(result.phone[0])) {
+      result.phone = '91' + result.phone
+    }
+
+    setParsed(result.phone ? result : null)
+  }
+
+  const handlePaste = (text) => {
+    setPasteText(text)
+    parsePaste(text)
+  }
+
+  const confirmParsed = () => {
+    if (!parsed?.phone) { toast.error('Could not find a phone number'); return }
+    onSelect(parsed)
+    setPasteText('')
+    setParsed(null)
+  }
+
+  // ── Search ────────────────────────────────────────────────────────────────
   const doSearch = async (q) => {
     setQuery(q)
     if (!q.trim()) { setResults([]); return }
@@ -58,12 +128,7 @@ function LeadInputPanel({ selected, onSelect, onClear }) {
     setQuery(''); setResults([])
   }
 
-  const confirmManual = () => {
-    if (!mPhone.trim()) { toast.error('Phone required'); return }
-    onSelect({ phone: mPhone.replace(/\D/g, ''), name: mName, company: mCompany })
-    setMPhone(''); setMName(''); setMCompany('')
-  }
-
+  // ── Upload ────────────────────────────────────────────────────────────────
   const handleUpload = async (file) => {
     if (!file) return
     setBusy(true)
@@ -76,6 +141,7 @@ function LeadInputPanel({ selected, onSelect, onClear }) {
     } catch { toast.error('Upload failed') } finally { setBusy(false) }
   }
 
+  // ── Scan ──────────────────────────────────────────────────────────────────
   const handleScan = async (file) => {
     if (!file) return
     setBusy(true)
@@ -83,18 +149,23 @@ function LeadInputPanel({ selected, onSelect, onClear }) {
     reader.onload = async () => {
       try {
         const { data } = await leadsApi.scanCard(reader.result.split(',')[1])
-        if (data.phone) { onSelect({ phone: data.phone.replace(/\D/g, ''), name: data.contact_name || '', company: data.company_name || '' }); toast.success('Card scanned!') }
-        else toast.error('No phone found on card')
+        if (data.phone) {
+          onSelect({ phone: data.phone.replace(/\D/g, ''), name: data.contact_name || '', company: data.company_name || '' })
+          toast.success('Card scanned!')
+        } else toast.error('No phone found on card')
       } catch { toast.error('Scan failed') } finally { setBusy(false) }
     }
     reader.readAsDataURL(file)
   }
 
+  // ── Selected state ────────────────────────────────────────────────────────
   if (selected) return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
         <label className="field-label mb-0">Recipient</label>
-        <button onClick={onClear} className="text-[11px] text-slate-400 hover:text-red-500 flex items-center gap-1"><X size={10} /> Change</button>
+        <button onClick={onClear} className="text-[11px] text-slate-400 hover:text-red-500 flex items-center gap-1">
+          <X size={10} /> Change
+        </button>
       </div>
       <div className="flex items-center gap-3 px-3 py-2.5 bg-emerald-50 border border-emerald-200 rounded-xl">
         <div className="w-8 h-8 rounded-full bg-emerald-100 border border-emerald-200 flex items-center justify-center text-xs font-bold text-emerald-700 flex-shrink-0">
@@ -111,59 +182,92 @@ function LeadInputPanel({ selected, onSelect, onClear }) {
 
   const MODES = [
     { id: 'search', label: 'Search', icon: <Search size={11} /> },
-    { id: 'manual', label: 'Manual', icon: <Plus size={11} /> },
+    { id: 'manual', label: 'Paste',  icon: <ClipboardList size={11} /> },
     { id: 'upload', label: 'Upload', icon: <Upload size={11} /> },
-    { id: 'scan', label: 'Scan', icon: <CreditCard size={11} /> },
+    { id: 'scan',   label: 'Scan',   icon: <CreditCard size={11} /> },
   ]
 
   return (
     <div className="space-y-2.5">
       <label className="field-label mb-0">Recipient</label>
+
+      {/* Mode tabs */}
       <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
         {MODES.map(m => (
           <button key={m.id} onClick={() => setInputMode(m.id)}
-            className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all ${inputMode === m.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+            className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all
+              ${inputMode === m.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             {m.icon}{m.label}
           </button>
         ))}
       </div>
 
+      {/* Search mode */}
       {inputMode === 'search' && (
         <div className="relative">
           <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-100">
             <Search size={13} className="text-slate-400 flex-shrink-0" />
-            <input className="flex-1 bg-transparent text-sm outline-none placeholder-slate-400" placeholder="Name, company, or phone…" value={query} onChange={e => doSearch(e.target.value)} />
+            <input className="flex-1 bg-transparent text-sm outline-none placeholder-slate-400"
+              placeholder="Name, company, or phone…"
+              value={query} onChange={e => doSearch(e.target.value)} />
             {busy && <Loader2 size={13} className="animate-spin text-emerald-500 flex-shrink-0" />}
             {query && !busy && <button onClick={() => { setQuery(''); setResults([]) }}><X size={13} className="text-slate-400 hover:text-slate-600" /></button>}
           </div>
           {results.length > 0 && (
             <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto">
               {results.map(l => (
-                <button key={l.id} onClick={() => pickResult(l)} className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0 text-sm">
+                <button key={l.id} onClick={() => pickResult(l)}
+                  className="w-full text-left px-4 py-2.5 hover:bg-slate-50 border-b border-slate-100 last:border-0 text-sm">
                   <p className="font-medium text-slate-800">{l.contact_name || '—'}</p>
                   <p className="text-xs text-slate-400">{l.company_name} · +{l.phone}</p>
                 </button>
               ))}
             </div>
           )}
-          {query && !busy && results.length === 0 && <p className="text-xs text-slate-400 mt-1.5 px-1">No leads with phone found</p>}
+          {query && !busy && results.length === 0 && (
+            <p className="text-xs text-slate-400 mt-1.5 px-1">No leads with phone found</p>
+          )}
         </div>
       )}
 
+      {/* Smart paste mode */}
       {inputMode === 'manual' && (
         <div className="space-y-2">
-          <div className="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2.5 bg-slate-50 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-100">
-            <span className="text-slate-500 text-sm font-mono">+</span>
-            <input className="flex-1 bg-transparent text-sm outline-none font-mono placeholder-slate-400" placeholder="91 98765 43210" value={mPhone} onChange={e => setMPhone(e.target.value.replace(/\D/g, ''))} />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <input className="input text-sm" placeholder="Name (optional)" value={mName} onChange={e => setMName(e.target.value)} />
-            <input className="input text-sm" placeholder="Company (optional)" value={mCompany} onChange={e => setMCompany(e.target.value)} />
-          </div>
-          <button onClick={confirmManual} disabled={!mPhone.trim()} className="btn-primary w-full text-sm py-2"><Check size={13} /> Use this number</button>
+          <textarea
+            className="textarea text-sm font-mono h-24 leading-relaxed"
+            placeholder={`Paste anything:\nphone=9876543210, name=John, company=Acme\nor: 9876543210 | John Smith | Acme Corp\nor just: +91 98765 43210`}
+            value={pasteText}
+            onChange={e => handlePaste(e.target.value)}
+          />
+
+          {/* Live parse preview */}
+          {parsed && (
+            <div className="grid grid-cols-3 gap-1.5">
+              {[
+                { label: 'Phone',   value: `+${parsed.phone}`, color: 'bg-emerald-50 border-emerald-200 text-emerald-800' },
+                { label: 'Name',    value: parsed.name    || '—', color: 'bg-slate-50 border-slate-200 text-slate-700' },
+                { label: 'Company', value: parsed.company || '—', color: 'bg-slate-50 border-slate-200 text-slate-700' },
+              ].map(f => (
+                <div key={f.label} className={`border rounded-lg px-2 py-1.5 ${f.color}`}>
+                  <p className="text-[9px] font-bold uppercase tracking-wide opacity-60 mb-0.5">{f.label}</p>
+                  <p className="text-xs font-medium truncate">{f.value}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {pasteText && !parsed && (
+            <p className="text-xs text-amber-600">⚠ Could not find a phone number — include a 10+ digit number</p>
+          )}
+
+          <button onClick={confirmParsed} disabled={!parsed?.phone}
+            className="btn-primary w-full text-sm py-2">
+            <Check size={13} /> Use this contact
+          </button>
         </div>
       )}
 
+      {/* Upload mode */}
       {inputMode === 'upload' && (
         <div className="space-y-2">
           <button onClick={() => uploadRef.current?.click()} disabled={busy}
@@ -171,11 +275,13 @@ function LeadInputPanel({ selected, onSelect, onClear }) {
             {busy ? <Loader2 size={18} className="animate-spin text-emerald-500" /> : <Upload size={18} />}
             <span className="text-xs">{busy ? 'Processing…' : 'Upload CSV / Excel / PDF'}</span>
           </button>
-          <input ref={uploadRef} type="file" accept=".csv,.xlsx,.xls,.pdf,.txt" className="hidden" onChange={e => e.target.files[0] && handleUpload(e.target.files[0])} />
+          <input ref={uploadRef} type="file" accept=".csv,.xlsx,.xls,.pdf,.txt" className="hidden"
+            onChange={e => e.target.files[0] && handleUpload(e.target.files[0])} />
           {uploaded.length > 0 && (
             <div className="border border-slate-200 rounded-xl max-h-40 overflow-y-auto">
               {uploaded.map((l, i) => (
-                <button key={i} onClick={() => onSelect({ phone: l.phone.replace(/\D/g, ''), name: l.contact_name || '', company: l.company_name || '' })}
+                <button key={i}
+                  onClick={() => onSelect({ phone: l.phone.replace(/\D/g, ''), name: l.contact_name || '', company: l.company_name || '' })}
                   className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0 flex items-center gap-2">
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-slate-800 truncate">{l.contact_name || l.company_name || '—'}</p>
@@ -189,6 +295,7 @@ function LeadInputPanel({ selected, onSelect, onClear }) {
         </div>
       )}
 
+      {/* Scan mode */}
       {inputMode === 'scan' && (
         <div className="space-y-1.5">
           <button onClick={() => scanRef.current?.click()} disabled={busy}
@@ -196,7 +303,8 @@ function LeadInputPanel({ selected, onSelect, onClear }) {
             {busy ? <Loader2 size={18} className="animate-spin text-emerald-500" /> : <CreditCard size={18} />}
             <span className="text-xs">{busy ? 'Scanning…' : 'Upload business card image'}</span>
           </button>
-          <input ref={scanRef} type="file" accept="image/*" className="hidden" onChange={e => e.target.files[0] && handleScan(e.target.files[0])} />
+          <input ref={scanRef} type="file" accept="image/*" className="hidden"
+            onChange={e => e.target.files[0] && handleScan(e.target.files[0])} />
           <p className="text-[10px] text-slate-400 text-center">AI extracts phone, name & company automatically</p>
         </div>
       )}
@@ -310,9 +418,9 @@ export default function WhatsAppSendPage() {
   }
 
   const TYPE_COLORS = {
-    hook: { pill: 'bg-yellow-50 border-yellow-200 text-yellow-700', preview: 'bg-yellow-50 border border-yellow-200 text-yellow-900', header: 'text-yellow-700' },
-    detailed: { pill: 'bg-blue-50 border-blue-200 text-blue-700', preview: 'bg-blue-50 border border-blue-200 text-blue-900', header: 'text-blue-700' },
-    image: { pill: 'bg-purple-50 border-purple-200 text-purple-700', preview: 'bg-purple-50 border border-purple-200 text-purple-900', header: 'text-purple-700' },
+    hook:     { pill: 'bg-yellow-50 border-yellow-200 text-yellow-700',  preview: 'bg-yellow-50 border border-yellow-200 text-yellow-900',  header: 'text-yellow-700' },
+    detailed: { pill: 'bg-blue-50 border-blue-200 text-blue-700',        preview: 'bg-blue-50 border border-blue-200 text-blue-900',        header: 'text-blue-700' },
+    image:    { pill: 'bg-purple-50 border-purple-200 text-purple-700',  preview: 'bg-purple-50 border border-purple-200 text-purple-900',  header: 'text-purple-700' },
   }
 
   return (
