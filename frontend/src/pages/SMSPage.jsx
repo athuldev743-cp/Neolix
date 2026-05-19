@@ -90,11 +90,12 @@ function CampaignLeadSelector({ selected, onChange }) {
         company_name: manual.company,
         business_details: manual.business_details,
         source: 'sms_manual',
+        // Fixed: Provides a valid fake email fallback to satisfy Pydantic's strict validation
+        email: `${phone}@neolix-sms.local` 
       }
 
       const { data } = await leadsApi.addSingle(payload)
       
-      // Fixed: Normalize the data structure mapping returned to the select state array matrix
       if (data.lead_ids?.length) {
         addIdsToSelection(data.lead_ids)
       } else {
@@ -107,10 +108,9 @@ function CampaignLeadSelector({ selected, onChange }) {
         })
       }
 
-      toast.success('SMS contact synced successfully!')
+      toast.success('SMS recipient contact synced successfully!')
       setManual({ phone: '', name: '', company: '', business_details: '' })
     } catch (err) {
-      // Fallback injection array mapping safely bound to local view layout structures
       addLeadToSelection({ 
         id: `manual-${Date.now()}`,
         phone, 
