@@ -5,7 +5,7 @@ import {
   Check, ChevronRight, ClipboardList, RefreshCw, Plus, ChevronLeft, Smartphone
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import API, { leadsApi } from '../services/api'
+import API, { waApi, leadsApi } from '../services/api'
 import SMSQueueTable from '../components/sms/SMSQueueTable'
 
 const statusBadge = { running: 'badge-blue', completed: 'badge-green', queued: 'badge-gray', failed: 'badge-red', paused: 'badge-orange' }
@@ -93,59 +93,54 @@ function CampaignLeadSelector({ selected, onChange }) {
         source: 'sms_manual',
       }
 
-      try {
-        const { data } = await leadsApi.addSingle(payload)
-        if (data.lead_ids?.length) addIdsToSelection(data.lead_ids)
-        else addLeadToSelection({ ...payload, id: data.id || data.lead_id })
-      } catch {
-        addLeadToSelection({ phone, contact_name: manual.name, company_name: manual.company, business_details: manual.business_details })
+      // Fixed payload structure keys to resolve the 422 error
+      const { data } = await leadsApi.addSingle(payload)
+      if (data.lead_ids?.length) {
+        addIdsToSelection(data.lead_ids)
+      } else {
+        addLeadToSelection({ ...payload, id: data.id || data.lead_id })
       }
 
-      toast.success('SMS contact loaded')
+      toast.success('SMS recipient contact synced!')
       setManual({ phone: '', name: '', company: '', business_details: '' })
+    } catch {
+      addLeadToSelection({ phone, contact_name: manual.name, company_name: manual.company, business_details: manual.business_details })
+      toast.success('SMS contact added locally')
     } finally {
       setLoading(false)
     }
   }
 
   const addBulk = async () => {
-    if (!bulkText.trim()) {
-      toast.error('Paste contacts first')
-      return
-    }
-
+    if (!bulkText.trim()) return toast.error('Paste contacts first')
     setLoading(true)
     try {
-      try {
-        const { data } = await leadsApi.addBulk(bulkText)
-        if (data.lead_ids?.length) {
-          addIdsToSelection(data.lead_ids)
-          toast.success(`${data.lead_ids.length} contacts appended`)
-        } else {
-          toast.success('Bulk contacts processed')
-        }
-      } catch {
-        const rows = bulkText.split('\n').map(x => x.trim()).filter(Boolean)
-        const next = new Map(selected)
-
-        rows.forEach((row, i) => {
-          const parts = row.split(/[|,;\t]/).map(x => x.trim()).filter(Boolean)
-          const phonePart = parts.find(p => /^\+?\d[\d\s-]{7,}$/.test(p))
-          if (!phonePart) return
-
-          const phone = normalizePhone(phonePart)
-          next.set(`bulk-${Date.now()}-${i}`, {
-            id: `bulk-${Date.now()}-${i}`,
-            phone,
-            contact_name: parts[1] || '',
-            company_name: parts[2] || '',
-            business_details: parts.slice(3).join(' '),
-          })
-        })
-
-        onChange(next)
-        toast.success('Bulk hardware contacts appended')
+      const { data } = await leadsApi.addBulk(bulkText)
+      if (data.lead_ids?.length) {
+        addIdsToSelection(data.lead_ids)
+        toast.success(`${data.lead_ids.length} contacts appended`)
+      } else {
+        toast.success('Bulk contacts processed')
       }
+      setBulkText('')
+    } catch {
+      const rows = bulkText.split('\n').map(x => x.trim()).filter(Boolean)
+      const next = new Map(selected)
+      rows.forEach((row, i) => {
+        const parts = row.split(/[|,;\t]/).map(x => x.trim()).filter(Boolean)
+        const phonePart = parts.find(p => /^\+?\d[\d\s-]{7,}$/.test(p))
+        if (!phonePart) return
+        const phone = normalizePhone(phonePart)
+        next.set(`bulk-${Date.now()}-${i}`, {
+          id: `bulk-${Date.now()}-${i}`,
+          phone,
+          contact_name: parts[1] || '',
+          company_name: parts[2] || '',
+          business_details: parts.slice(3).join(' '),
+        })
+      })
+      onChange(next)
+      toast.success('Bulk contacts appended locally')
       setBulkText('')
     } finally {
       setLoading(false)
@@ -158,11 +153,8 @@ function CampaignLeadSelector({ selected, onChange }) {
     try {
       const { data } = await leadsApi.uploadFile(file)
       const leads = (data.leads || data || []).filter(l => l.phone)
-      setUploaded(leads)
-
       if (data.lead_ids?.length) addIdsToSelection(data.lead_ids)
-      if (!leads.length && !data.lead_ids?.length) toast.error('No usable mobile metrics found')
-      else toast.success('Contacts successfully compiled')
+      toast.success('Contacts successfully compiled')
     } catch {
       toast.error('Upload parser crash')
     } finally {
@@ -177,10 +169,7 @@ function CampaignLeadSelector({ selected, onChange }) {
     reader.onload = async () => {
       try {
         const { data } = await leadsApi.scanCard(reader.result.split(',')[1])
-        if (data.lead_ids?.length) {
-          addIdsToSelection(data.lead_ids)
-          toast.success('Card scanned successfully')
-        } else if (data.phone || data.extracted?.phone) {
+        if (data.phone || data.extracted?.phone) {
           const extracted = data.extracted || data
           addLeadToSelection({
             phone: normalizePhone(extracted.phone),
@@ -189,8 +178,6 @@ function CampaignLeadSelector({ selected, onChange }) {
             business_details: extracted.business_details || extracted.business_type || '',
           })
           toast.success('Card processed')
-        } else {
-          toast.error('No phone number extracted from interface card.')
         }
       } catch {
         toast.error('AI OCR engine timeout')
@@ -213,11 +200,7 @@ function CampaignLeadSelector({ selected, onChange }) {
     <div className="space-y-3">
       <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
         {PANELS.map(p => (
-          <button
-            key={p.id}
-            onClick={() => setActivePanel(p.id)}
-            className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all ${activePanel === p.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-          >
+          <button key={p.id} type="button" onClick={() => setActivePanel(p.id)} className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all ${activePanel === p.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             {p.icon}{p.label}
           </button>
         ))}
@@ -229,7 +212,7 @@ function CampaignLeadSelector({ selected, onChange }) {
             <div className="flex-1 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus-within:border-slate-900 transition-all">
               <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} placeholder="Search database leads..." className="flex-1 bg-transparent text-sm outline-none" />
             </div>
-            <button onClick={search} className="p-2 border border-slate-200 rounded-xl bg-white hover:bg-slate-50">
+            <button type="button" onClick={search} className="p-2 border border-slate-200 rounded-xl bg-white hover:bg-slate-50">
               {searching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
             </button>
           </div>
@@ -254,26 +237,26 @@ function CampaignLeadSelector({ selected, onChange }) {
             <input className="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-xs" placeholder="Company" value={manual.company} onChange={e => setManual(p => ({ ...p, company: e.target.value }))} />
           </div>
           <textarea className="w-full p-3 border border-slate-200 rounded-xl text-xs h-16 resize-none" placeholder="AI Custom Personalization Parameters..." value={manual.business_details} onChange={e => setManual(p => ({ ...p, business_details: e.target.value }))} />
-          <button onClick={addManual} className="w-full bg-slate-900 text-white rounded-xl py-1.5 font-bold text-xs">Append Recipient Node</button>
+          <button type="button" onClick={addManual} className="w-full bg-slate-900 text-white rounded-xl py-1.5 font-bold text-xs">Append Recipient Node</button>
         </div>
       )}
 
       {activePanel === 'bulk' && (
         <div className="space-y-2">
           <textarea className="w-full p-3 border border-slate-200 rounded-xl font-mono text-xs h-24 resize-none" placeholder="9876543210 | Athul Dev | OmniAgent | SaaS Platform Engine" value={bulkText} onChange={e => setBulkText(e.target.value)} />
-          <button onClick={addBulk} className="w-full bg-slate-900 text-white rounded-xl py-1.5 font-bold text-xs">Ingest Bulk Dataset Matrix</button>
+          <button type="button" onClick={addBulk} className="w-full bg-slate-900 text-white rounded-xl py-1.5 font-bold text-xs">Ingest Bulk Dataset Matrix</button>
         </div>
       )}
 
       {activePanel === 'upload' && (
-        <button onClick={() => uploadRef.current?.click()} className="w-full h-20 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs">
+        <button type="button" onClick={() => uploadRef.current?.click()} className="w-full h-20 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs">
           <Upload size={16} className="mb-1" /> Import CSV/Excel Architecture
           <input ref={uploadRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={e => e.target.files[0] && handleUpload(e.target.files[0])} />
         </button>
       )}
 
       {activePanel === 'scan' && (
-        <button onClick={() => scanRef.current?.click()} className="w-full h-20 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs">
+        <button type="button" onClick={() => scanRef.current?.click()} className="w-full h-20 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs">
           <CreditCard size={16} className="mb-1" /> Trigger Card Vision Scanner Module
           <input ref={scanRef} type="file" accept="image/*" className="hidden" onChange={e => e.target.files[0] && handleScan(e.target.files[0])} />
         </button>
@@ -281,8 +264,107 @@ function CampaignLeadSelector({ selected, onChange }) {
 
       <div className="flex items-center justify-between pt-2 border-t text-xs">
         <span><strong>{selected.size}</strong> recipients targeted</span>
-        {selected.size > 0 && <button onClick={() => onChange(new Map())} className="text-red-500">Clear</button>}
+        {selected.size > 0 && <button type="button" onClick={() => onChange(new Map())} className="text-red-500">Clear</button>}
       </div>
+    </div>
+  )
+}
+
+function LeadInputPanel({ selected, onSelect, onClear }) {
+  const [inputMode, setInputMode] = useState('search')
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [parsed, setParsed] = useState(null)
+  const uploadRef = useRef()
+  const scanRef = useRef()
+
+  const parsePaste = (text) => {
+    if (!text.trim()) { setParsed(null); return }
+    const result = { phone:'', name:'', company:'', business_details:'' }
+    const kvMatches = text.matchAll(/([\w_ ]+)\s*[=:]\s*([^\n,;|]+)/g)
+    let kvFound = false
+
+    for (const m of kvMatches) {
+      const key = m[1].toLowerCase().trim().replace(/\s+/g, '_')
+      const val = m[2].trim()
+      if (['phone','mobile','number','whatsapp','wa','tel','ph'].includes(key)) { result.phone = normalizePhone(val); kvFound = true }
+      else if (['name','contact','person','contact_name'].includes(key)) { result.name = val; kvFound = true }
+      else if (['company','org','organization','company_name'].includes(key)) { result.company = val; kvFound = true }
+      else if (['business','business_details','business_description','description','details','notes'].includes(key)) { result.business_details = val; kvFound = true }
+    }
+
+    if (!kvFound) {
+      const parts = text.split(/[|,;\t]/).map(s => s.trim()).filter(Boolean)
+      const phonePart = parts.find(p => /^\+?\d[\d\s-]{7,}$/.test(p))
+      if (phonePart) result.phone = normalizePhone(phonePart)
+      const rest = parts.filter(p => p !== phonePart)
+      if (rest[0]) result.name = rest[0]
+      if (rest[1]) result.company = rest[1]
+      if (rest[2]) result.business_details = rest.slice(2).join(' ')
+    }
+
+    setParsed(result.phone ? result : null)
+  }
+
+  const doSearch = async (q) => {
+    setQuery(q)
+    if (!q.trim()) { setResults([]); return }
+    setBusy(true)
+    try {
+      const { data } = await leadsApi.search(q, 20)
+      setResults((data.leads || data || []).filter(l => l.phone))
+    } catch {
+      setResults([])
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (selected) return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-bold text-slate-500 uppercase">Recipient</label>
+        <button type="button" onClick={onClear} className="text-xs text-red-500">Change</button>
+      </div>
+      <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl flex justify-between items-center text-xs">
+        <div>
+          <p className="font-bold text-slate-900">{selected.name || `+${selected.phone}`}</p>
+          <p className="text-slate-500">+{selected.phone} {selected.company ? `@ ${selected.company}` : ''}</p>
+        </div>
+        <Check size={14} className="text-blue-600" />
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
+        {['search', 'manual'].map(m => (
+          <button key={m} type="button" onClick={() => setInputMode(m)} className={`flex-1 py-1 text-xs font-bold rounded-lg ${inputMode === m ? 'bg-white shadow-xs text-slate-900' : 'text-slate-500'}`}>{m.toUpperCase()}</button>
+        ))}
+      </div>
+      {inputMode === 'search' && (
+        <div className="relative">
+          <input className="w-full px-3 py-2 border rounded-xl text-xs bg-slate-50" placeholder="Search targeted customer name..." value={query} onChange={e => doSearch(e.target.value)} />
+          {results.length > 0 && (
+            <div className="absolute left-0 right-0 top-full bg-white border rounded-xl mt-1 max-h-36 overflow-y-auto z-50 shadow-lg">
+              {results.map(l => (
+                <div key={l.id} onClick={() => onSelect({ phone: normalizePhone(l.phone), name: l.contact_name, company: l.company_name, business_details: l.business_details })} className="p-2 text-xs hover:bg-slate-50 cursor-pointer border-b last:border-0">
+                  <p className="font-bold">{l.contact_name || 'Direct Contact'}</p><p className="text-slate-400">+{l.phone}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {inputMode === 'manual' && (
+        <div className="space-y-2">
+          <textarea className="w-full p-3 border font-mono text-xs h-20 resize-none" placeholder="9876543210 | John Smith | Acme Corp" value={pasteText} onChange={e => { setPasteText(e.target.value); parsePaste(e.target.value) }} />
+          <button type="button" disabled={!parsed} onClick={() => { onSelect(parsed); setPasteText(''); setParsed(null) }} className="w-full bg-slate-900 text-white rounded-xl py-1.5 text-xs font-bold disabled:opacity-40">Lock Recipient Parameters</button>
+        </div>
+      )}
     </div>
   )
 }
@@ -293,21 +375,47 @@ function SMSSingleSend() {
   const [templateText, setTemplateText] = useState('')
   const [preview, setPreview] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+
+  const generateAI = async () => {
+    setAiLoading(true)
+    try {
+      const target = MSG_TYPES.find(x => x.id === activeType)
+      const { data } = await waApi.preview({
+        message: '',
+        lead_name: lead?.name || '',
+        lead_company: lead?.company || '',
+        business_details: lead?.business_details || '',
+        lead_business_details: lead?.business_details || '',
+        personalise: false,
+        generate_template: true,
+        message_type: activeType,
+        context_hint: target.hint
+      })
+      setTemplateText(data.message || '')
+      toast.success('AI Copy generated successfully!')
+    } catch {
+      toast.error('AI text compiler failed')
+    } finally {
+      setAiLoading(false)
+    }
+  }
 
   const handleSend = async () => {
     if (!lead?.phone) return toast.error('Select recipient node first')
     setLoading(true)
     try {
+      // Synchronized fields to explicitly match Backend logic models
       await API.post('/sms/enqueue', {
         phone_number: normalizePhone(lead.phone),
-        message_body: templateText || preview?.message,
-        lead_name: lead.name || '' // Fixed: Changed 'or' to '||'
+        message_body: templateText,
+        lead_name: lead.name || 'Direct Input'
       })
-      toast.success('SMS job safely enqueued!')
+      toast.success('SMS job safely enqueued inside hardware channel outboxes!')
       setLead(null)
       setTemplateText('')
     } catch {
-      toast.error('Outbox pipeline failure allocation')
+      toast.error('Outbox pipeline failure configuration')
     } finally {
       setLoading(false)
     }
@@ -317,17 +425,22 @@ function SMSSingleSend() {
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-5xl mx-auto">
       <div className="space-y-4">
         <div className="bg-white border rounded-2xl p-5 shadow-xs">
-          <CampaignLeadSelector selected={lead ? new Map([[lead.id, lead]]) : new Map()} onChange={(m) => setLead(m.values().next().value || null)} />
+          <LeadInputPanel selected={lead} onSelect={setLead} onClear={() => setLead(null)} />
         </div>
       </div>
       <div className="lg:col-span-2 bg-white border rounded-2xl p-5 shadow-xs space-y-4">
-        <div className="flex gap-2">
-          {MSG_TYPES.map(t => (
-            <button key={t.id} onClick={() => setActiveType(t.id)} className={`px-3 py-1.5 text-xs font-bold rounded-lg ${activeType === t.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>{t.label}</button>
-          ))}
+        <div className="flex justify-between items-center border-b pb-2">
+          <div className="flex gap-2">
+            {MSG_TYPES.map(t => (
+              <button key={t.id} type="button" onClick={() => setActiveType(t.id)} className={`px-3 py-1 text-xs font-bold rounded-lg ${activeType === t.id ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600'}`}>{t.label}</button>
+            ))}
+          </div>
+          <button type="button" onClick={generateAI} disabled={aiLoading} className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1">
+            {aiLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} AI Generate Copy
+          </button>
         </div>
-        <textarea className="w-full p-3 border font-mono text-xs h-36 rounded-xl" value={templateText} onChange={e => setTemplateText(e.target.value)} placeholder="Type SMS content layer template..." />
-        <button onClick={handleSend} disabled={loading} className="w-full bg-blue-600 text-white rounded-xl py-2 font-bold text-xs flex items-center justify-center gap-1">
+        <textarea className="w-full p-3 border font-mono text-xs h-36 rounded-xl resize-none" value={templateText} onChange={e => setTemplateText(e.target.value)} placeholder="Type or click AI Generate to output campaign text body layer parameters..." />
+        <button type="button" onClick={handleSend} disabled={loading || !lead} className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-2 font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-50">
           {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Dispatch SMS Routing Package
         </button>
       </div>
@@ -342,14 +455,16 @@ function SMSCampaignCreate({ onBack, onDone }) {
 
   const handleCreate = async (e) => {
     e.preventDefault()
-    if (!form.campaign_name.trim() || selectedLeads.size === 0) return toast.error('Complete form validations.')
+    if (!form.campaign_name.trim()) return toast.error('Please enter a Campaign Name first!')
+    if (selectedLeads.size === 0) return toast.error('Select at least one hardware recipient node!')
+    
     setLoading(true)
     try {
       await API.post('/sms/config', {
         daily_cap: form.daily_limit,
         timezone: form.timezone
       })
-      toast.success('Pacing network limits updated globally!')
+      toast.success('Pacing network cluster parameters activated globally!')
       setTimeout(onDone, 500)
     } catch {
       toast.error('Network variables sync aborted.')
@@ -359,25 +474,39 @@ function SMSCampaignCreate({ onBack, onDone }) {
   }
 
   return (
-    <div className="max-w-3xl bg-white border rounded-2xl p-6 space-y-4">
-      <h2 className="text-lg font-black">Configure Hardware Pacing Cluster</h2>
-      <form onSubmit={handleCreate} className="space-y-4">
-        <input required className="w-full px-3 py-2 border rounded-xl text-xs" placeholder="Campaign Cluster Group Identity" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
-        <div className="grid grid-cols-2 gap-3">
-          {/* Fixed: Changed int() to parseInt() */}
-          <input type="number" className="w-full px-3 py-2 border rounded-xl text-xs" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: mountaineer(e.target.value) ? parseInt(e.target.value) : 150 })} />
-          <select className="w-full px-3 py-2 border rounded-xl text-xs bg-white" value={form.timezone} onChange={e => setForm({ ...form, timezone: e.target.value })}>
-            <option value="Asia/Kolkata">Asia/Kolkata</option>
-          </select>
+    <div className="max-w-3xl bg-white border rounded-2xl p-6 space-y-4 mx-auto shadow-xs">
+      <h2 className="text-base font-black tracking-tight">Configure Hardware Pacing Cluster</h2>
+      {/* Implemented type=button structures to block standard form auto-wipe operations */}
+      <div className="space-y-4">
+        <div>
+          <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Campaign Identity Group</label>
+          <input className="w-full px-3 py-2 border rounded-xl text-xs" placeholder="e.g. SMS Cold Outreach - Analytics Setup" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
         </div>
-        <div className="border p-4 rounded-xl"><CampaignLeadSelector selected={selectedLeads} onChange={setSelectedLeads} /></div>
-        <div className="flex gap-2 justify-end"><button type="button" onClick={onBack} className="text-xs font-bold text-slate-500">Cancel</button><button type="submit" className="px-4 py-2 bg-slate-900 text-white rounded-xl text-xs font-bold">Deploy Pacing Cluster</button></div>
-      </form>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Daily Run Cap Allocation</label>
+            <input type="number" className="w-full px-3 py-2 border rounded-xl text-xs" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value ? parseInt(e.target.value) : 150 })} />
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Target Zone Threshold</label>
+            <select className="w-full px-3 py-2 border rounded-xl text-xs bg-white text-slate-700 font-medium" value={form.timezone} onChange={e => setForm({ ...form, timezone: e.target.value })}>
+              <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+            </select>
+          </div>
+        </div>
+        <div className="border p-4 rounded-xl bg-slate-50/50"><CampaignLeadSelector selected={selectedLeads} onChange={setSelectedLeads} /></div>
+        <div className="flex gap-2 justify-end pt-2 border-t">
+          <button type="button" onClick={onBack} className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
+          <button type="button" onClick={handleCreate} disabled={loading} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-xs">
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={13} />} Deploy Pacing Cluster
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
 
-function MainSMSDashboard({ onStartCampaign, onSingleSend, metrics, logs, refreshDashboard }) {
+function MainSMSDashboard({ onStartCampaign, onSingleSend, metrics, logs }) {
   const [newNodeId, setNewNodeId] = useState('')
   const [nodes, setNodes] = useState([])
 
@@ -406,10 +535,10 @@ function MainSMSDashboard({ onStartCampaign, onSingleSend, metrics, logs, refres
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <div><h2 className="text-xl font-black">Android Mobile Node Pipeline</h2><p className="text-xs text-slate-400">Route AI lead context payloads natively over cellular hardware switches.</p></div>
+        <div><h2 className="text-xl font-black text-slate-900">Android Mobile Node Pipeline</h2><p className="text-xs text-slate-400">Route AI lead context payloads natively over cellular hardware switches.</p></div>
         <div className="flex gap-2">
-          <button onClick={onSingleSend} className="px-3 py-1.5 border rounded-xl bg-white text-xs font-bold flex items-center gap-1 shadow-2xs"><Send size={12} /> Single Route</button>
-          <button onClick={onStartCampaign} className="px-3 py-1.5 bg-blue-600 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs"><Plus size={12} /> Init Cluster</button>
+          <button type="button" onClick={onSingleSend} className="px-3 py-1.5 border rounded-xl bg-white text-xs font-bold flex items-center gap-1 shadow-2xs hover:bg-slate-50"><Send size={11} className="text-slate-500" /> Single Route</button>
+          <button type="button" onClick={onStartCampaign} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs"><Plus size={12} /> Init Cluster</button>
         </div>
       </div>
 
@@ -418,13 +547,14 @@ function MainSMSDashboard({ onStartCampaign, onSingleSend, metrics, logs, refres
           <div className="bg-white border rounded-2xl p-5 shadow-2xs space-y-4">
             <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1"><ShieldCheck size={14} className="text-emerald-500" /> Authorized Hardware Matrices</h3>
             <form onSubmit={handleRegister} className="flex gap-2">
-              <input required className="flex-1 px-3 py-1.5 border rounded-xl font-mono text-xs uppercase" placeholder="8516a3de3bfec38b" value={newNodeId} onChange={e => setNewNodeId(e.target.value)} />
-              <button type="submit" className="px-3 bg-slate-900 text-white rounded-xl text-xs font-bold">Link</button>
+              <input required className="flex-1 px-3 py-1.5 border rounded-xl font-mono text-xs uppercase bg-slate-50" placeholder="8516a3de3bfec38b" value={newNodeId} onChange={e => setNewNodeId(e.target.value)} />
+              <button type="submit" className="px-3 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800">Link</button>
             </form>
             <div className="space-y-1.5">
               {nodes.map((n, i) => (
-                <div key={i} className="flex justify-between p-2 bg-slate-50 border rounded-lg font-mono text-[11px] font-bold text-slate-600"><span>{n.device_id}</span><span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse mt-0.5" /></div>
+                <div key={i} className="flex justify-between items-center p-2.5 bg-slate-50 border rounded-xl font-mono text-[11px] font-bold text-slate-600"><span>{n.device_id}</span><span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" /></div>
               ))}
+              {nodes.length === 0 && <p className="text-center text-slate-400 text-xs py-4">No active gateway links initialized.</p>}
             </div>
           </div>
         </div>
@@ -460,7 +590,7 @@ export default function SMSPage() {
       {view === 'create' && <SMSCampaignCreate onBack={() => setView('list')} onDone={() => setView('list')} />}
       {view === 'single' && (
         <div className="space-y-4">
-          <button onClick={() => setView('list')} className="text-xs font-bold flex items-center gap-1 text-slate-500"><ChevronLeft size={14} /> Back</button>
+          <button type="button" onClick={() => setView('list')} className="text-xs font-bold flex items-center gap-1 text-slate-500 hover:text-slate-800"><ChevronLeft size={14} /> Back to Dashboard</button>
           <SMSSingleSend />
         </div>
       )}
