@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { 
   ArrowRight, Smartphone, Send, Loader2, 
-  MessageSquare, Zap, RefreshCw, Layers, Sparkles, Play 
+  MessageSquare, Zap, RefreshCw, Layers, Sparkles, Terminal, Copy, Check
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import API from '../services/api'
@@ -13,6 +13,10 @@ export default function SMSPage() {
   const [logs, setLogs] = useState([])
   const [manualSMS, setManualSMS] = useState({ phone_number: '', message_body: '', lead_name: '' })
   const [sending, setSending] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  // This is the clean setup script that will download and boot your backend node natively inside Termux
+  const termuxCommand = `pkg update -y && pkg install termux-api nodejs -y && npm install -g localtunnel && curl -O https://neolix-hub.vercel.app/sms_node.js && node sms_node.js & localtunnel --port 8080`
 
   useEffect(() => {
     refreshDashboard()
@@ -29,6 +33,13 @@ export default function SMSPage() {
     } catch (err) {
       console.error('Failed to update tracking metrics:', err)
     }
+  }
+
+  const handleCopyCommand = () => {
+    navigator.clipboard.writeText(termuxCommand)
+    setCopied(true)
+    toast.success('Termux initialization script copied to clipboard!')
+    setTimeout(() => setCopied(false), 3000)
   }
 
   const handleManualEnqueue = async (e) => {
@@ -53,7 +64,7 @@ export default function SMSPage() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-black tracking-tight text-slate-900">Android SMS Gateway</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Route automated sales texts 100% free using your local unlimited SIM package.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Route automated sales texts 100% free using your local unlimited SIM package via Termux API Linux environments.</p>
         </div>
         <button 
           onClick={refreshDashboard}
@@ -64,55 +75,78 @@ export default function SMSPage() {
         </button>
       </div>
 
-      {/* CLOUD RELAY ONBOARDING GUIDE */}
+      {/* TERMUX SETUP ONBOARDING CARD */}
       <div className="bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-2xl p-6 shadow-md border border-slate-800 relative overflow-hidden">
         <div className="absolute top-0 right-0 p-8 opacity-5 transform translate-x-4 -translate-y-4 hidden lg:block">
-          <Smartphone className="h-64 w-64" />
+          <Terminal className="h-64 w-64" />
         </div>
 
         <div className="max-w-3xl space-y-5">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 border border-white/10 rounded-full text-[11px] font-bold tracking-wider uppercase text-slate-300">
-            <Sparkles className="h-3 w-3 text-amber-400" /> Official Play Store Sync
+            <Sparkles className="h-3 w-3 text-amber-400" /> Professional Unbreakable Link
           </div>
           
           <div>
-            <h2 className="text-xl font-extrabold tracking-tight">Connect via httpSMS in 3 steps</h2>
-            <p className="text-xs text-slate-400 mt-1">No security warnings, no local routers, no configuration tools. Everything connects over the web natively.</p>
+            <h2 className="text-xl font-extrabold tracking-tight">Connect your phone using Termux Linux Node</h2>
+            <p className="text-xs text-slate-400 mt-1">100% immune to Google Play Store delistings or Play Protect installation blocks.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs pt-2">
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">1</div>
-              <p className="font-bold text-white">Install httpSMS App</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Click the button below to open the Google Play Store and install the official <strong>httpSMS</strong> companion app cleanly.</p>
+              <p className="font-bold text-white">Download Termux Bundle</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Download and install the base Termux engine app and the API link tool from the buttons below.</p>
             </div>
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">2</div>
-              <p className="font-bold text-white">Get your API Key</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Create a free account on <strong>httpsms.com</strong>, copy your **API Key** from the settings panel, and sign in on your phone.</p>
+              <p className="font-bold text-white">Enable Device Permissions</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Go to phone <strong>Settings ──► Apps ──► Termux:API ──► Permissions</strong> and explicitly enable <strong>SMS</strong>.</p>
             </div>
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">3</div>
-              <p className="font-bold text-white">Paste & Go</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Paste your API Key and your phone number into the configuration block below. Your hub is now fully live!</p>
+              <p className="font-bold text-white">Run the Terminal Node</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Copy the initialization code below, paste it into Termux on your handset, and copy back the link it generates.</p>
             </div>
           </div>
 
-          <div className="pt-2">
+          {/* DYNAMIC COPYABLE CODE BOX */}
+          <div className="space-y-1.5 pt-2">
+            <label className="block text-[11px] font-bold tracking-wider uppercase text-slate-400">Termux Terminal Setup Code</label>
+            <div className="flex bg-black/40 border border-white/10 rounded-xl p-2.5 items-center justify-between gap-3 font-mono text-xs text-emerald-400 overflow-x-hidden select-all max-w-2xl">
+              <span className="truncate pr-4">{termuxCommand}</span>
+              <button 
+                onClick={handleCopyCommand}
+                type="button"
+                className="flex-shrink-0 h-8 w-8 bg-white/10 hover:bg-white/20 active:bg-white/5 border border-white/10 rounded-lg flex items-center justify-center transition text-white"
+                title="Copy code to clipboard"
+              >
+                {copied ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+              </button>
+            </div>
+          </div>
+
+          <div className="pt-2 flex flex-wrap gap-3">
             <a 
-              href="https://play.google.com/store/apps/details?id=com.httpsms.httpsms" 
+              href="https://github.com/termux/termux-app/releases/latest/download/termux-app_universal.apk" 
               target="_blank" 
               rel="noreferrer"
-              className="inline-flex items-center gap-2 h-10 px-5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold rounded-xl shadow-md transition"
+              className="inline-flex items-center gap-2 h-9 px-4 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl shadow-md transition"
             >
-              <Play className="h-3.5 w-3.5 fill-current stroke-none" />
-              Install directly from Google Play Store
-              <ArrowRight className="h-3.5 w-3.5 ml-1" />
+              1. Download Termux Engine
+            </a>
+            <a 
+              href="https://github.com/termux/termux-api/releases/latest/download/termux-api_universal.apk" 
+              target="_blank" 
+              rel="noreferrer"
+              className="inline-flex items-center gap-2 h-9 px-4 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl shadow-md transition"
+            >
+              2. Download API Hook
             </a>
           </div>
         </div>
       </div>
 
+      {/* METRICS DISPLAYS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { title: 'Awaiting Queue', val: metrics.pending_count, sub: 'Messages in stream', icon: Layers, css: 'text-amber-600 bg-amber-50 border-amber-100' },
