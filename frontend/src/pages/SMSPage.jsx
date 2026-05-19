@@ -468,25 +468,42 @@ function SMSCampaignCreate({ onBack, onDone }) {
   const [loading, setLoading] = useState(false)
 
   const handleCreate = async (e) => {
-    e.preventDefault()
+    if (e) e.preventDefault()
     if (!form.campaign_name.trim()) return toast.error('Please enter a Campaign Name first!')
-    if (selectedLeads.size === 0) return toast.error('Select at least one hardware recipient node!')
+    if (selectedLeads.size === 0) return toast.error('Select at least one recipient lead!')
     
     setLoading(true)
     try {
+      // 1. Update the global pacing threshold rules
       await API.post('/sms/config', {
         daily_cap: form.daily_limit,
         timezone: form.timezone
       })
-      toast.success('Pacing network cluster parameters activated globally!')
+
+      // 2. Loop through every selected lead and inject it into the outbox engine database
+      const leadsArray = Array.from(selectedLeads.values())
+      
+      // We run this concurrently so all message insertion operations hit the database immediately
+      await Promise.all(
+        leadsArray.map(lead => 
+          API.post('/sms/enqueue', {
+            phone_number: normalizePhone(lead.phone),
+            // Default message layout text matching your campaign framework parameters
+            message_body: `Hi ${lead.contact_name || 'there'}, we noticed ${lead.company_name || 'your business'} matches our platform criteria. Let's chat!`,
+            lead_name: lead.contact_name || lead.company_name || 'Direct Input'
+          })
+        )
+      )
+
+      toast.success(`Successfully spawned ${selectedLeads.size} message tasks into outbox queue!`)
       setTimeout(onDone, 500)
-    } catch {
-      toast.error('Network variables sync aborted.')
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to compile cluster stream parameters.')
     } finally {
       setLoading(false)
     }
   }
-
   return (
     <div className="max-w-3xl bg-white border rounded-2xl p-6 space-y-4 mx-auto shadow-xs">
       <h2 className="text-base font-black tracking-tight">Configure Hardware Pacing Cluster</h2>
