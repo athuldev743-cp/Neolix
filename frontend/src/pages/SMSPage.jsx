@@ -64,7 +64,7 @@ export default function SMSPage() {
         </button>
       </div>
 
-      {/* NEW VERIFIED GOOGLE PLAY ONBOARDING INSTRUCTIONS */}
+      {/* CLOUD RELAY ONBOARDING GUIDE */}
       <div className="bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-2xl p-6 shadow-md border border-slate-800 relative overflow-hidden">
         <div className="absolute top-0 right-0 p-8 opacity-5 transform translate-x-4 -translate-y-4 hidden lg:block">
           <Smartphone className="h-64 w-64" />
@@ -72,48 +72,47 @@ export default function SMSPage() {
 
         <div className="max-w-3xl space-y-5">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 border border-white/10 rounded-full text-[11px] font-bold tracking-wider uppercase text-slate-300">
-            <Sparkles className="h-3 w-3 text-amber-400" /> Play Store Integration
+            <Sparkles className="h-3 w-3 text-amber-400" /> Cloud Sync Setup
           </div>
           
           <div>
-            <h2 className="text-xl font-extrabold tracking-tight">Connect via official SMS Gateway App</h2>
-            <p className="text-xs text-slate-400 mt-1">100% Play Protect Verified. Zero sideloading warnings or security alerts for your device.</p>
+            <h2 className="text-xl font-extrabold tracking-tight">Connect your phone to the cloud in 3 steps</h2>
+            <p className="text-xs text-slate-400 mt-1">No complicated network setups or setups required. Everything connects over the web natively.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs pt-2">
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">1</div>
-              <p className="font-bold text-white">Find on Play Store</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Open Google Play, search for <strong>"SMS Gateway"</strong> by <em>Infinireach</em>, and install it.</p>
+              <p className="font-bold text-white">Install TextBee App</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Click the button below to open the official Google Play page and install <strong>TextBee SMS Gateway</strong>.</p>
             </div>
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">2</div>
-              <p className="font-bold text-white">Copy Webhook URL</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Launch the app on your phone, go to settings, and locate the generated Cloud Webhook endpoint string.</p>
+              <p className="font-bold text-white">Get your API Credentials</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Open the app, sign in, and copy your private **API Key** along with your **Device ID** from the screen.</p>
             </div>
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">3</div>
-              <p className="font-bold text-white">Sync Dashboard</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Paste that exact Webhook URL into the configuration card below, click save, and you're fully connected!</p>
+              <p className="font-bold text-white">Save & Sync</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Paste those values into the configuration card below. Your app is now ready to route messages globally!</p>
             </div>
           </div>
 
           <div className="pt-2">
             <a 
-              href="https://play.google.com/store/apps/details?id=com.pabrikaplikasi.simplesmsgateway" 
+              href="https://play.google.com/store/apps/details?id=dev.textbee.sms" 
               target="_blank" 
               rel="noreferrer"
               className="inline-flex items-center gap-2 h-10 px-5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold rounded-xl shadow-md transition"
             >
               <Play className="h-3.5 w-3.5 fill-current stroke-none" />
-              Install Directly from Google Play Store
+              Open Direct Play Store Application Page
               <ArrowRight className="h-3.5 w-3.5 ml-1" />
             </a>
           </div>
         </div>
       </div>
 
-      {/* METRIC GRIDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { title: 'Awaiting Queue', val: metrics.pending_count, sub: 'Messages in stream', icon: Layers, css: 'text-amber-600 bg-amber-50 border-amber-100' },
