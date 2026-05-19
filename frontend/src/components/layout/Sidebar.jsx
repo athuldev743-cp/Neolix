@@ -1,16 +1,17 @@
 import { NavLink, useLocation } from 'react-router-dom'
 import { useContext } from 'react'
 import {
-  LayoutDashboard, Mail, Smartphone, Settings, Zap, ChevronRight
+  LayoutDashboard, Mail, Smartphone, MessageSquare, Settings, Zap, ChevronRight
 } from 'lucide-react'
 import clsx from 'clsx'
 import { ProfileContext } from '../../App'
 
 const nav = [
-  { path: '/',         icon: LayoutDashboard, label: 'Dashboard' },
-  { path: '/email',    icon: Mail,            label: 'Email'     },
-  { path: '/whatsapp', icon: Smartphone,      label: 'WhatsApp'  },
-  { path: '/settings', icon: Settings,        label: 'Settings'  },
+  { path: '/',         icon: LayoutDashboard, label: 'Dashboard font-bold' },
+  { path: '/email',    icon: Mail,            label: 'Email' },
+  { path: '/whatsapp', icon: Smartphone,      label: 'WhatsApp' },
+  { path: '/sms',      icon: MessageSquare,   label: 'SMS Gateway' }, // Flat injection mapping to /sms route
+  { path: '/settings', icon: Settings,        label: 'Settings' },
 ]
 
 export default function Sidebar() {
