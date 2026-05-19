@@ -417,3 +417,153 @@
 .fade-up { animation: fadeUp 0.2s ease forwards; }
 
 .scroll-y { overflow-y:auto; scrollbar-width:thin; }
+
+/* ─────────────────────────────────────────
+   RESPONSIVE LAYOUT
+───────────────────────────────────────── */
+
+/* Tablets */
+@media (max-width: 1024px) {
+  :root {
+    --sidebar-width: 220px;
+  }
+
+  .app-content {
+    max-width: 100%;
+    padding: 28px 22px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .app-shell {
+    display: block;
+    min-height: 100dvh;
+  }
+
+  .sidebar-shell {
+    position: static;
+    width: 100%;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--sidebar-border);
+    box-shadow: 0 1px 12px rgba(0, 0, 0, 0.04);
+  }
+
+  .sidebar-brand {
+    padding: 16px;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 10px 12px;
+    gap: 8px;
+    scrollbar-width: none;
+  }
+
+  .sidebar-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .sidebar-section-label {
+    display: none;
+  }
+
+  .sidebar-link {
+    flex: 0 0 auto;
+    padding: 9px 12px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .sidebar-link-bar {
+    display: none;
+  }
+
+  .sidebar-module-badge {
+    display: none;
+  }
+
+  .sidebar-profile {
+    display: none;
+  }
+
+  .app-main {
+    margin-left: 0;
+    min-height: auto;
+  }
+
+  .app-content {
+    padding: 20px 14px;
+  }
+
+  .page-title {
+    font-size: 20px;
+    line-height: 1.25;
+  }
+
+  .card,
+  .card-hover {
+    border-radius: 14px;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger,
+  .btn-ghost {
+    justify-content: center;
+  }
+
+  .table-base {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+
+  .bubble-sent,
+  .bubble-recv {
+    max-width: 90%;
+  }
+}
+
+/* Small phones */
+@media (max-width: 480px) {
+  body {
+    font-size: 13px;
+  }
+
+  .app-content {
+    padding: 16px 12px;
+  }
+
+  .sidebar-brand-name {
+    font-size: 13px;
+  }
+
+  .sidebar-brand-sub {
+    font-size: 8px;
+  }
+
+  .sidebar-link {
+    font-size: 13px;
+    padding: 8px 10px;
+  }
+
+  .input,
+  .textarea {
+    padding: 10px 12px;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-danger {
+    width: 100%;
+  }
+
+  .badge {
+    font-size: 11px;
+  }
+}
