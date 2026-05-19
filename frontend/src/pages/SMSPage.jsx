@@ -6,7 +6,7 @@ import {
 import toast from 'react-hot-toast'
 import API from '../services/api'
 import SMSConfigForm from '../components/sms/SMSConfigForm'
-import SMSQueueTable from '../components/sms/SMSQueueTable '
+import SMSQueueTable from '../components/sms/SMSQueueTable'
 
 export default function SMSPage() {
   const [metrics, setMetrics] = useState({ pending_count: 0, processing_count: 0, sent_today: 0, daily_limit: 150 })
