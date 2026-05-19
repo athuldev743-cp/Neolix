@@ -4,7 +4,7 @@ import toast from 'react-hot-toast'
 import API from '../../services/api'
 
 export default function SMSConfigForm({ onConfigUpdated }) {
-  const [config, setConfig] = useState({ webhook_url: '', daily_cap: 150, timezone: 'Asia/Kolkata' })
+  const [config, setConfig] = useState({ daily_cap: 150, timezone: 'Asia/Kolkata' })
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -16,7 +16,6 @@ export default function SMSConfigForm({ onConfigUpdated }) {
       const { data } = await API.get('/sms/config')
       if (data) {
         setConfig({
-          webhook_url: data.webhook_url || '',
           daily_cap: data.daily_cap || 150,
           timezone: data.timezone || 'Asia/Kolkata'
         })
@@ -31,7 +30,7 @@ export default function SMSConfigForm({ onConfigUpdated }) {
     setLoading(true)
     try {
       await API.post('/sms/config', config)
-      toast.success('Termux gateway node synced successfully!')
+      toast.success('Pacing thresholds updated successfully!')
       if (onConfigUpdated) onConfigUpdated()
     } catch (err) {
       toast.error('Failed to update cloud network variables.')
@@ -47,24 +46,25 @@ export default function SMSConfigForm({ onConfigUpdated }) {
           <Sliders className="h-5 w-5" />
         </div>
         <div>
-          <h3 className="text-base font-bold text-slate-900">Termux Gateway Endpoint</h3>
-          <p className="text-xs text-slate-500">Input the public secure URL tunnel string generated inside Termux shell layers.</p>
+          <h3 className="text-base font-bold text-slate-900">Pacing Config</h3>
+          <p className="text-xs text-slate-500">Configure safety throttles for your linked device nodes.</p>
         </div>
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
         <div>
           <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">
-            Gateway Node URL
+            Operational Business Timezone
           </label>
-          <input
-            type="url"
-            required
-            placeholder="https://neolix-sms-node.localtunnel.me"
-            className="w-full px-3.5 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 text-sm font-mono text-slate-800 transition"
-            value={config.webhook_url}
-            onChange={e => setConfig({ ...config, webhook_url: e.target.value })}
-          />
+          <select
+            className="w-full px-3.5 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 text-sm font-medium text-slate-800 bg-white transition"
+            value={config.timezone}
+            onChange={e => setConfig({ ...config, timezone: e.target.value })}
+          >
+            <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+            <option value="America/New_York">America/New_York (EST)</option>
+            <option value="Europe/London">Europe/London (GMT)</option>
+          </select>
         </div>
 
         <div>

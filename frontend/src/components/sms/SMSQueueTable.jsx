@@ -1,6 +1,5 @@
 import { useState } from 'react'
-import { Calendar, User, MessageSquare, ClipboardList, AlertCircle } from 'lucide-react'
-import API from '../../services/api'
+import { Calendar, User, ClipboardList, AlertCircle } from 'lucide-react'
 
 export default function SMSQueueTable({ logs }) {
   const [currentFilter, setCurrentFilter] = useState('ALL')
@@ -65,7 +64,8 @@ export default function SMSQueueTable({ logs }) {
               </tr>
             ) : (
               filteredLogs.map((log) => (
-                <tr key={log.id} className="hover:bg-slate-50/50 transition-colors">
+                // Fixed: Changed log.id to log._id to support Beanie ODM database structure
+                <tr key={log._id || log.id} className="hover:bg-slate-50/50 transition-colors">
                   <td className="p-4 font-semibold text-slate-900 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       <div className="h-7 w-7 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 text-xs font-bold">
@@ -75,7 +75,7 @@ export default function SMSQueueTable({ logs }) {
                         <p className="truncate max-w-[120px]">{log.lead_name || 'Direct Input'}</p>
                         <span className="text-[10px] text-slate-400 font-medium block flex items-center gap-0.5">
                           <Calendar className="h-2.5 w-2.5" />
-                          {new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {log.created_at ? new Date(log.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '--:--'}
                         </span>
                       </div>
                     </div>
