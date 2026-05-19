@@ -79,8 +79,7 @@ function CampaignLeadSelector({ selected, onChange }) {
   const addManual = async () => {
     const phone = normalizePhone(manual.phone)
     if (phone.length < 10) {
-      toast.error('Enter a valid mobile number')
-      return
+      return toast.error('Enter a valid mobile number')
     }
 
     setLoading(true)
@@ -93,19 +92,34 @@ function CampaignLeadSelector({ selected, onChange }) {
         source: 'sms_manual',
       }
 
-      // Fixed payload structure keys to resolve the 422 error
       const { data } = await leadsApi.addSingle(payload)
+      
+      // Fixed: Normalize the data structure mapping returned to the select state array matrix
       if (data.lead_ids?.length) {
         addIdsToSelection(data.lead_ids)
       } else {
-        addLeadToSelection({ ...payload, id: data.id || data.lead_id })
+        addLeadToSelection({
+          id: data.id || data.lead_id || `manual-${Date.now()}`,
+          phone: phone,
+          contact_name: manual.name || 'Direct Input',
+          company_name: manual.company || '',
+          business_details: manual.business_details || ''
+        })
       }
 
-      toast.success('SMS recipient contact synced!')
+      toast.success('SMS contact synced successfully!')
       setManual({ phone: '', name: '', company: '', business_details: '' })
-    } catch {
-      addLeadToSelection({ phone, contact_name: manual.name, company_name: manual.company, business_details: manual.business_details })
+    } catch (err) {
+      // Fallback injection array mapping safely bound to local view layout structures
+      addLeadToSelection({ 
+        id: `manual-${Date.now()}`,
+        phone, 
+        contact_name: manual.name || 'Direct Input', 
+        company_name: manual.company || '', 
+        business_details: manual.business_details || '' 
+      })
       toast.success('SMS contact added locally')
+      setManual({ phone: '', name: '', company: '', business_details: '' })
     } finally {
       setLoading(false)
     }
