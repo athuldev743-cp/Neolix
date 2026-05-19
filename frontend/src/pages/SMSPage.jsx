@@ -4,6 +4,8 @@ import {
   MessageSquare, Zap, RefreshCw, Layers, Sparkles 
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+
+// Points up out of pages/ to src/ and into services/
 import API from '../services/api'
 import SMSConfigForm from '../components/sms/SMSConfigForm'
 import SMSQueueTable from '../components/sms/SMSQueueTable'

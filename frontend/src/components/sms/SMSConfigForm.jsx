@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Key, ShieldAlert, Check, Loader2, Link2, Sliders } from 'lucide-react'
 import toast from 'react-hot-toast'
-import API from '../api' // Uses your configured Vercel axios client instance
+
+import API from '../../services/api'
 
 export default function SMSConfigForm({ onConfigUpdated }) {
   const [config, setConfig] = useState({ gateway_login: '', gateway_password: '', daily_cap: 150, timezone: 'Asia/Kolkata' })

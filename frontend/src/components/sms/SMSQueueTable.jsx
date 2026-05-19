@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Calendar, User, MessageSquare, ClipboardList, AlertCircle } from 'lucide-react'
+import API from '../../services/api'
 
 export default function SMSQueueTable({ logs }) {
   const [currentFilter, setCurrentFilter] = useState('ALL')
