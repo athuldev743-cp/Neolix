@@ -445,64 +445,6 @@ function CampaignLeadSelector({ selected, onChange }) {
   )
 }
 
-  const toggle = (lead) => {
-    const next = new Map(selected)
-    if (next.has(lead.id)) next.delete(lead.id)
-    else next.set(lead.id, lead)
-    onChange(next)
-  }
-
-  const selectAll = () => {
-    const next = new Map(selected)
-    results.forEach(l => next.set(l.id, l))
-    onChange(next)
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <div className="flex-1 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-100 transition-all">
-          <Search size={14} className="text-slate-400 flex-shrink-0" />
-          <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()}
-            placeholder="Search leads with WhatsApp number..." className="flex-1 bg-transparent text-sm outline-none placeholder-slate-400" />
-          {query && <button onClick={() => { setQuery(''); setResults([]) }} className="text-slate-400 hover:text-slate-600"><X size={13} /></button>}
-        </div>
-        <button onClick={search} className="btn-secondary px-3 py-2.5">
-          {searching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-        </button>
-      </div>
-
-      {results.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-xs text-slate-400">{results.length} WhatsApp leads</p>
-            <button onClick={selectAll} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">Select all</button>
-          </div>
-          <div className="max-h-64 overflow-y-auto space-y-1 pr-0.5">
-            {results.map(lead => (
-              <div key={lead.id} onClick={() => toggle(lead)}
-                className={`flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${selected.has(lead.id) ? 'border-emerald-300 bg-emerald-50' : 'border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50'}`}>
-                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${selected.has(lead.id) ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'}`}>
-                  {selected.has(lead.id) && <Check size={10} className="text-white" strokeWidth={3} />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-900 truncate">{lead.company_name || lead.contact_name || 'Unknown'}</p>
-                  <p className="text-xs text-slate-400 truncate">+{lead.phone}{lead.city ? ` · ${lead.city}` : ''}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-        <span className="text-sm text-slate-500"><strong className="text-slate-900">{selected.size}</strong> leads selected</span>
-        {selected.size > 0 && <button onClick={() => onChange(new Map())} className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1"><X size={12} /> Clear all</button>}
-      </div>
-    </div>
-  )
-
-
 function CampaignList({ onCreate, onSingle, onDetail }) {
   const [camps, setCamps] = useState([])
   const [loading, setLoading] = useState(true)
