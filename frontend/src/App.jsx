@@ -5,6 +5,7 @@ import Layout        from './components/layout/Layout'
 import DashboardPage from './pages/DashboardPage'
 import EmailPage     from './pages/EmailPage'
 import WhatsAppPage  from './pages/WhatsAppPage'
+import SMSPage       from './pages/SMSPage' // Import the new SMS Gateway panel layout
 import SettingsPage  from './pages/SettingsPage'
 import { profileApi } from './services/api'
 
@@ -91,7 +92,7 @@ export default function App() {
             <Route path="/"           element={<DashboardPage />} />
             <Route path="/email/*"    element={<EmailPage />} />
             <Route path="/whatsapp/*" element={<WhatsAppPage />} />
-            {/* Both /settings and /profile load SettingsPage */}
+            <Route path="/sms/*"      element={<SMSPage />} /> {/* Route added to process SMS views */}
             <Route path="/settings"   element={<SettingsPage />} />
             <Route path="/profile"    element={<SettingsPage />} />
             <Route path="*"           element={<Navigate to="/" replace />} />

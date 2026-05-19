@@ -86,4 +86,13 @@ export const waApi = {
   preview:        (data)  => api.post('/whatsapp/preview', data),
 }
 
+// ── Android SIM Gateway ───────────────────────────────────────────────────────
+export const smsApi = {
+  getConfig:   ()     => api.get('/sms/config'),
+  saveConfig:  (data) => api.post('/sms/config', data),
+  enqueue:     (data) => api.post('/sms/enqueue', data),
+  getMetrics:  ()     => api.get('/sms/queue-status'),
+  getLogs:     ()     => api.get('/sms/logs'),
+}
+
 export default api
