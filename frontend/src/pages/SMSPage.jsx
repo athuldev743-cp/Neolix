@@ -24,9 +24,12 @@ export default function SMSPage() {
 
   const refreshDashboard = async () => {
     try {
-      const metricRes = await API.get('/api/v1/sms/queue-status')
+      // Change from: API.get('/api/v1/sms/queue-status')
+      const metricRes = await API.get('/sms/queue-status')
       setMetrics(metricRes.data)
-      const logRes = await API.get('/api/v1/sms/logs')
+      
+      // Change from: API.get('/api/v1/sms/logs')
+      const logRes = await API.get('/sms/logs')
       setLogs(logRes.data)
     } catch (err) {
       console.error('Failed to update tracking metrics:', err)
@@ -38,7 +41,8 @@ export default function SMSPage() {
     if (!manualSMS.phone_number || !manualSMS.message_body) return
     setSending(true)
     try {
-      await API.post('/api/v1/sms/enqueue', manualSMS)
+      // Change from: API.post('/api/v1/sms/enqueue', manualSMS)
+      await API.post('/sms/enqueue', manualSMS)
       toast.success('Message injected safely into pacing queue stream.')
       setManualSMS({ phone_number: '', message_body: '', lead_name: '' })
       refreshDashboard()

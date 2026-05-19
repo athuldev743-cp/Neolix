@@ -12,9 +12,10 @@ export default function SMSConfigForm({ onConfigUpdated }) {
     fetchCurrentConfig()
   }, [])
 
-  const fetchCurrentConfig = async () => {
+ const fetchCurrentConfig = async () => {
     try {
-      const { data } = await API.get('/api/v1/sms/config')
+      // Change from: API.get('/api/v1/sms/config')
+      const { data } = await API.get('/sms/config')
       if (data) {
         setConfig({
           gateway_login: data.gateway_login || '',
@@ -32,7 +33,8 @@ export default function SMSConfigForm({ onConfigUpdated }) {
     e.preventDefault()
     setLoading(true)
     try {
-      await API.post('/api/v1/sms/config', config)
+      // Change from: API.post('/api/v1/sms/config', config)
+      await API.post('/sms/config', config)
       toast.success('SMS Credentials saved and synced successfully!')
       if (onConfigUpdated) onConfigUpdated()
     } catch (err) {
