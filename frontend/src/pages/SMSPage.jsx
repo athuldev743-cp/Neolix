@@ -72,41 +72,41 @@ export default function SMSPage() {
 
         <div className="max-w-3xl space-y-5">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 border border-white/10 rounded-full text-[11px] font-bold tracking-wider uppercase text-slate-300">
-            <Sparkles className="h-3 w-3 text-amber-400" /> Cloud Sync Setup
+            <Sparkles className="h-3 w-3 text-amber-400" /> Official Play Store Sync
           </div>
           
           <div>
-            <h2 className="text-xl font-extrabold tracking-tight">Connect your phone to the cloud in 3 steps</h2>
-            <p className="text-xs text-slate-400 mt-1">No complicated network setups or setups required. Everything connects over the web natively.</p>
+            <h2 className="text-xl font-extrabold tracking-tight">Connect via httpSMS in 3 steps</h2>
+            <p className="text-xs text-slate-400 mt-1">No security warnings, no local routers, no configuration tools. Everything connects over the web natively.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs pt-2">
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">1</div>
-              <p className="font-bold text-white">Install TextBee App</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Click the button below to open the official Google Play page and install <strong>TextBee SMS Gateway</strong>.</p>
+              <p className="font-bold text-white">Install httpSMS App</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Click the button below to open the Google Play Store and install the official <strong>httpSMS</strong> companion app cleanly.</p>
             </div>
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">2</div>
-              <p className="font-bold text-white">Get your API Credentials</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Open the app, sign in, and copy your private **API Key** along with your **Device ID** from the screen.</p>
+              <p className="font-bold text-white">Get your API Key</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Create a free account on <strong>httpsms.com</strong>, copy your **API Key** from the settings panel, and sign in on your phone.</p>
             </div>
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">3</div>
-              <p className="font-bold text-white">Save & Sync</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Paste those values into the configuration card below. Your app is now ready to route messages globally!</p>
+              <p className="font-bold text-white">Paste & Go</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Paste your API Key and your phone number into the configuration block below. Your hub is now fully live!</p>
             </div>
           </div>
 
           <div className="pt-2">
             <a 
-              href="https://textbee.dev/download" 
+              href="https://play.google.com/store/apps/details?id=com.httpsms.httpsms" 
               target="_blank" 
               rel="noreferrer"
               className="inline-flex items-center gap-2 h-10 px-5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold rounded-xl shadow-md transition"
             >
-              <Smartphone className="h-4 w-4" />
-              Download & Install TextBee App Directly
+              <Play className="h-3.5 w-3.5 fill-current stroke-none" />
+              Install directly from Google Play Store
               <ArrowRight className="h-3.5 w-3.5 ml-1" />
             </a>
           </div>

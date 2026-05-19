@@ -4,13 +4,10 @@ import toast from 'react-hot-toast'
 import API from '../../services/api'
 
 export default function SMSConfigForm({ onConfigUpdated }) {
-  // Config state adjusted to capture dynamic api keys + device identifiers
   const [config, setConfig] = useState({ webhook_url: '', timezone: 'Asia/Kolkata', daily_cap: 150 })
   const [loading, setLoading] = useState(false)
-
-  // Split values locally for clean user input field parsing
   const [apiKey, setApiKey] = useState('')
-  const [deviceId, setDeviceId] = useState('')
+  const [simPhone, setSimPhone] = useState('')
 
   useEffect(() => {
     fetchCurrentConfig()
@@ -24,7 +21,7 @@ export default function SMSConfigForm({ onConfigUpdated }) {
         if (data.webhook_url.includes('||')) {
           const parts = data.webhook_url.split('||')
           setApiKey(parts[0])
-          setDeviceId(parts[1])
+          setSimPhone(parts[1])
         }
       }
     } catch (err) {
@@ -34,14 +31,13 @@ export default function SMSConfigForm({ onConfigUpdated }) {
 
   const handleSave = async (e) => {
     e.preventDefault()
-    if (!apiKey || !deviceId) {
-      toast.error('Both credentials keys are required.')
+    if (!apiKey || !simPhone) {
+      toast.error('Both fields are required.')
       return
     }
     setLoading(true)
     
-    // Package credentials seamlessly using a flat composite string
-    const compositeUrl = `${apiKey.trim()}||${deviceId.trim()}`
+    const compositeUrl = `${apiKey.trim()}||${simPhone.trim()}`
     
     try {
       await API.post('/sms/config', {
@@ -49,7 +45,7 @@ export default function SMSConfigForm({ onConfigUpdated }) {
         daily_cap: config.daily_cap,
         timezone: config.timezone
       })
-      toast.success('TextBee sync parameters initialized successfully!')
+      toast.success('httpSMS configuration synchronized!')
       if (onConfigUpdated) onConfigUpdated()
     } catch (err) {
       toast.error('Failed to update config settings.')
@@ -65,20 +61,20 @@ export default function SMSConfigForm({ onConfigUpdated }) {
           <Sliders className="h-5 w-5" />
         </div>
         <div>
-          <h3 className="text-base font-bold text-slate-900">TextBee Connection Keys</h3>
-          <p className="text-xs text-slate-500">Input credentials pulled from your dashboard panel.</p>
+          <h3 className="text-base font-bold text-slate-900">httpSMS Credentials</h3>
+          <p className="text-xs text-slate-500">Sync your credentials straight from your web dashboard.</p>
         </div>
       </div>
 
       <form onSubmit={handleSave} className="space-y-4">
         <div>
           <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-            TextBee API Key
+            httpSMS API Key
           </label>
           <input
             type="password"
             required
-            placeholder="Enter your textbee api key..."
+            placeholder="Enter your httpSMS API key..."
             className="w-full px-3.5 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 text-xs font-mono text-slate-800 transition"
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
@@ -87,21 +83,21 @@ export default function SMSConfigForm({ onConfigUpdated }) {
 
         <div>
           <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-            TextBee Device ID
+            Your SIM Phone Number
           </label>
           <input
             type="text"
             required
-            placeholder="e.g., 64b8f3..."
+            placeholder="e.g., +919876543210"
             className="w-full px-3.5 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 text-xs font-mono text-slate-800 transition"
-            value={deviceId}
-            onChange={e => setDeviceId(e.target.value)}
+            value={simPhone}
+            onChange={e => setSimPhone(e.target.value)}
           />
         </div>
 
         <div>
           <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1">
-            Daily Pacing Limit Ceiling
+            Daily Safety Limit Ceiling
           </label>
           <input
             type="number"
@@ -115,7 +111,7 @@ export default function SMSConfigForm({ onConfigUpdated }) {
           <div className="mt-2 p-3 bg-amber-50 border border-amber-100 rounded-xl flex items-start gap-2">
             <ShieldAlert className="h-4 w-4 text-amber-600 flex-shrink-0" />
             <p className="text-[10px] text-amber-800 leading-relaxed font-medium">
-              Keep dynamic outbound metrics below <strong>150 daily runs</strong> to insulate individual consumer hardware nodes from carrier filtering.
+              Keep volume below <strong>150 daily messages</strong> to safeguard your physical line from carrier filters.
             </p>
           </div>
         </div>
@@ -125,7 +121,7 @@ export default function SMSConfigForm({ onConfigUpdated }) {
           disabled={loading}
           className="w-full h-9 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition disabled:opacity-50"
         >
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Check className="h-4 w-4" /> Save Configuration</>}
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Check className="h-4 w-4" /> Save and Sync</>}
         </button>
       </form>
     </div>
