@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Send, Loader2, Eye, X, MessageSquare, Sparkles,
   Image, FileText, Zap, Search, Upload, CreditCard,
-  Check, ChevronRight, ClipboardList, RefreshCw, Plus, ChevronLeft
+  Check, ChevronRight, ClipboardList, RefreshCw, Plus, ChevronLeft, Mail
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi, leadsApi } from '../services/api'
@@ -38,9 +38,36 @@ function normalizePhone(phone) {
 }
 
 function CampaignLeadSelector({ selected, onChange }) {
+  const [activePanel, setActivePanel] = useState('search')
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [manual, setManual] = useState({
+    phone: '',
+    name: '',
+    company: '',
+    business_details: '',
+  })
+  const [bulkText, setBulkText] = useState('')
+  const [uploaded, setUploaded] = useState([])
+  const uploadRef = useRef()
+  const scanRef = useRef()
+
+  const addLeadToSelection = (lead) => {
+    const id = lead.id || `manual-${Date.now()}-${Math.random()}`
+    const next = new Map(selected)
+    next.set(id, { ...lead, id })
+    onChange(next)
+  }
+
+  const addIdsToSelection = (ids) => {
+    const next = new Map(selected)
+    ids.forEach(id => {
+      if (!next.has(id)) next.set(id, { id })
+    })
+    onChange(next)
+  }
 
   const search = async () => {
     if (!query.trim()) return
@@ -56,6 +83,367 @@ function CampaignLeadSelector({ selected, onChange }) {
       setSearching(false)
     }
   }
+
+  const toggle = (lead) => {
+    const next = new Map(selected)
+    if (next.has(lead.id)) next.delete(lead.id)
+    else next.set(lead.id, lead)
+    onChange(next)
+  }
+
+  const selectAll = () => {
+    const next = new Map(selected)
+    results.forEach(l => next.set(l.id, l))
+    onChange(next)
+  }
+
+  const addManual = async () => {
+    const phone = normalizePhone(manual.phone)
+    if (phone.length < 10) {
+      toast.error('Enter a valid WhatsApp number')
+      return
+    }
+
+    setLoading(true)
+    try {
+      const payload = {
+        phone,
+        contact_name: manual.name,
+        company_name: manual.company,
+        business_details: manual.business_details,
+        source: 'whatsapp_manual',
+      }
+
+      try {
+        const { data } = await leadsApi.addSingle(payload)
+        if (data.lead_ids?.length) addIdsToSelection(data.lead_ids)
+        else addLeadToSelection({ ...payload, id: data.id || data.lead_id })
+      } catch {
+        addLeadToSelection({
+          phone,
+          contact_name: manual.name,
+          company_name: manual.company,
+          business_details: manual.business_details,
+        })
+      }
+
+      toast.success('WhatsApp contact added')
+      setManual({ phone: '', name: '', company: '', business_details: '' })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const addBulk = async () => {
+    if (!bulkText.trim()) {
+      toast.error('Paste WhatsApp contacts first')
+      return
+    }
+
+    setLoading(true)
+    try {
+      try {
+        const { data } = await leadsApi.addBulk(bulkText)
+        if (data.lead_ids?.length) {
+          addIdsToSelection(data.lead_ids)
+          toast.success(`${data.lead_ids.length} contacts added`)
+        } else {
+          toast.success('Bulk contacts processed')
+        }
+      } catch {
+        const rows = bulkText.split('\n').map(x => x.trim()).filter(Boolean)
+        const next = new Map(selected)
+
+        rows.forEach((row, i) => {
+          const parts = row.split(/[|,;\t]/).map(x => x.trim()).filter(Boolean)
+          const phonePart = parts.find(p => /^\+?\d[\d\s-]{7,}$/.test(p))
+          if (!phonePart) return
+
+          const phone = normalizePhone(phonePart)
+          next.set(`bulk-${Date.now()}-${i}`, {
+            id: `bulk-${Date.now()}-${i}`,
+            phone,
+            contact_name: parts[1] || '',
+            company_name: parts[2] || '',
+            business_details: parts.slice(3).join(' '),
+          })
+        })
+
+        onChange(next)
+        toast.success('Bulk WhatsApp contacts added')
+      }
+
+      setBulkText('')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleUpload = async (file) => {
+    if (!file) return
+    setLoading(true)
+    try {
+      const { data } = await leadsApi.uploadFile(file)
+      const leads = (data.leads || data || []).filter(l => l.phone)
+      setUploaded(leads)
+
+      if (data.lead_ids?.length) addIdsToSelection(data.lead_ids)
+      if (!leads.length && !data.lead_ids?.length) toast.error('No WhatsApp numbers found')
+      else toast.success(`${data.total_found || leads.length || data.lead_ids.length} contacts loaded`)
+    } catch {
+      toast.error('Upload failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleScan = async (file) => {
+    if (!file) return
+    setLoading(true)
+
+    const reader = new FileReader()
+    reader.onload = async () => {
+      try {
+        const { data } = await leadsApi.scanCard(reader.result.split(',')[1])
+
+        if (data.lead_ids?.length) {
+          addIdsToSelection(data.lead_ids)
+          toast.success('Card scanned')
+        } else if (data.phone || data.extracted?.phone) {
+          const extracted = data.extracted || data
+          addLeadToSelection({
+            phone: normalizePhone(extracted.phone),
+            contact_name: extracted.contact_name || '',
+            company_name: extracted.company_name || '',
+            business_details: extracted.business_details || extracted.business_type || '',
+          })
+          toast.success('Card scanned')
+        } else {
+          toast.error('No WhatsApp number found on card')
+        }
+      } catch {
+        toast.error('Scan failed')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    reader.readAsDataURL(file)
+  }
+
+  const PANELS = [
+    { id: 'search', label: 'Search DB', icon: <Search size={12} /> },
+    { id: 'single', label: 'Single', icon: <Mail size={12} /> },
+    { id: 'bulk', label: 'Bulk Paste', icon: <ClipboardList size={12} /> },
+    { id: 'upload', label: 'Upload', icon: <Upload size={12} /> },
+    { id: 'scan', label: 'Scan Card', icon: <CreditCard size={12} /> },
+  ]
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
+        {PANELS.map(p => (
+          <button
+            key={p.id}
+            onClick={() => setActivePanel(p.id)}
+            className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              activePanel === p.id
+                ? 'bg-white text-slate-800 shadow-sm'
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {p.icon}{p.label}
+          </button>
+        ))}
+      </div>
+
+      {activePanel === 'search' && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-100 transition-all">
+              <Search size={14} className="text-slate-400 flex-shrink-0" />
+              <input
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && search()}
+                placeholder="Search leads with WhatsApp number..."
+                className="flex-1 bg-transparent text-sm outline-none placeholder-slate-400"
+              />
+              {query && (
+                <button onClick={() => { setQuery(''); setResults([]) }} className="text-slate-400 hover:text-slate-600">
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+            <button onClick={search} className="btn-secondary px-3 py-2.5">
+              {searching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+            </button>
+          </div>
+
+          {results.length > 0 && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className="text-xs text-slate-400">{results.length} WhatsApp leads</p>
+                <button onClick={selectAll} className="text-xs text-emerald-600 hover:text-emerald-700 font-medium">
+                  Select all
+                </button>
+              </div>
+              <div className="max-h-64 overflow-y-auto space-y-1 pr-0.5">
+                {results.map(lead => (
+                  <div
+                    key={lead.id}
+                    onClick={() => toggle(lead)}
+                    className={`flex items-center gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                      selected.has(lead.id)
+                        ? 'border-emerald-300 bg-emerald-50'
+                        : 'border-slate-100 bg-white hover:border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                      selected.has(lead.id) ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300'
+                    }`}>
+                      {selected.has(lead.id) && <Check size={10} className="text-white" strokeWidth={3} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-slate-900 truncate">
+                        {lead.company_name || lead.contact_name || 'Unknown'}
+                      </p>
+                      <p className="text-xs text-slate-400 truncate">+{lead.phone}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activePanel === 'single' && (
+        <div className="space-y-2">
+          <input
+            className="input text-sm"
+            placeholder="WhatsApp number *"
+            value={manual.phone}
+            onChange={e => setManual(p => ({ ...p, phone: e.target.value }))}
+          />
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              className="input text-sm"
+              placeholder="Name"
+              value={manual.name}
+              onChange={e => setManual(p => ({ ...p, name: e.target.value }))}
+            />
+            <input
+              className="input text-sm"
+              placeholder="Company"
+              value={manual.company}
+              onChange={e => setManual(p => ({ ...p, company: e.target.value }))}
+            />
+          </div>
+          <textarea
+            className="textarea h-20 text-xs"
+            placeholder="Business description / notes for AI personalisation"
+            value={manual.business_details}
+            onChange={e => setManual(p => ({ ...p, business_details: e.target.value }))}
+          />
+          <button onClick={addManual} disabled={loading} className="btn-primary w-full text-sm py-2">
+            {loading ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+            Add WhatsApp contact
+          </button>
+        </div>
+      )}
+
+      {activePanel === 'bulk' && (
+        <div className="space-y-2">
+          <textarea
+            className="textarea h-32 text-xs font-mono"
+            placeholder={`Paste WhatsApp contacts:\n9876543210 | John | Acme | Auto parts dealer\n9123456789 | Priya | Nova Clinic | Dental clinic`}
+            value={bulkText}
+            onChange={e => setBulkText(e.target.value)}
+          />
+          <button onClick={addBulk} disabled={loading || !bulkText.trim()} className="btn-primary w-full text-sm py-2">
+            {loading ? <Loader2 size={13} className="animate-spin" /> : <ClipboardList size={13} />}
+            Add pasted WhatsApp contacts
+          </button>
+        </div>
+      )}
+
+      {activePanel === 'upload' && (
+        <div className="space-y-2">
+          <button
+            onClick={() => uploadRef.current?.click()}
+            disabled={loading}
+            className="w-full h-24 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center gap-1.5 text-slate-400 hover:border-emerald-300 hover:text-emerald-500 transition-all"
+          >
+            {loading ? <Loader2 size={18} className="animate-spin text-emerald-500" /> : <Upload size={18} />}
+            <span className="text-xs">{loading ? 'Processing...' : 'Upload CSV / Excel / PDF / TXT'}</span>
+          </button>
+          <input
+            ref={uploadRef}
+            type="file"
+            accept=".csv,.xlsx,.xls,.pdf,.txt"
+            className="hidden"
+            onChange={e => e.target.files[0] && handleUpload(e.target.files[0])}
+          />
+
+          {uploaded.length > 0 && (
+            <div className="border border-slate-200 rounded-xl max-h-40 overflow-y-auto">
+              {uploaded.map((l, i) => (
+                <button
+                  key={i}
+                  onClick={() => addLeadToSelection(l)}
+                  className="w-full text-left px-3 py-2 hover:bg-slate-50 border-b border-slate-100 last:border-0 flex items-center gap-2"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-800 truncate">
+                      {l.contact_name || l.company_name || '-'}
+                    </p>
+                    <p className="text-xs text-slate-400">+{l.phone}</p>
+                  </div>
+                  <ChevronRight size={13} className="text-slate-300 flex-shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activePanel === 'scan' && (
+        <div className="space-y-1.5">
+          <button
+            onClick={() => scanRef.current?.click()}
+            disabled={loading}
+            className="w-full h-24 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center gap-1.5 text-slate-400 hover:border-emerald-300 hover:text-emerald-500 transition-all"
+          >
+            {loading ? <Loader2 size={18} className="animate-spin text-emerald-500" /> : <CreditCard size={18} />}
+            <span className="text-xs">{loading ? 'Scanning...' : 'Upload business card image'}</span>
+          </button>
+          <input
+            ref={scanRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={e => e.target.files[0] && handleScan(e.target.files[0])}
+          />
+          <p className="text-[10px] text-slate-400 text-center">
+            AI extracts WhatsApp number, name, company and business details
+          </p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+        <span className="text-sm text-slate-500">
+          <strong className="text-slate-900">{selected.size}</strong> leads selected
+        </span>
+        {selected.size > 0 && (
+          <button onClick={() => onChange(new Map())} className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1">
+            <X size={12} /> Clear all
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
 
   const toggle = (lead) => {
     const next = new Map(selected)
@@ -113,7 +501,7 @@ function CampaignLeadSelector({ selected, onChange }) {
       </div>
     </div>
   )
-}
+
 
 function CampaignList({ onCreate, onSingle, onDetail }) {
   const [camps, setCamps] = useState([])
