@@ -100,13 +100,13 @@ export default function SMSPage() {
 
           <div className="pt-2">
             <a 
-              href="https://play.google.com/store/apps/details?id=dev.textbee.sms" 
+              href="https://textbee.dev/download" 
               target="_blank" 
               rel="noreferrer"
               className="inline-flex items-center gap-2 h-10 px-5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold rounded-xl shadow-md transition"
             >
-              <Play className="h-3.5 w-3.5 fill-current stroke-none" />
-              Open Direct Play Store Application Page
+              <Smartphone className="h-4 w-4" />
+              Download & Install TextBee App Directly
               <ArrowRight className="h-3.5 w-3.5 ml-1" />
             </a>
           </div>
