@@ -1,11 +1,9 @@
 import { useState, useEffect } from 'react'
 import { 
-  Download, ArrowRight, Smartphone, Key, Send, Loader2, 
-  MessageSquare, Zap, RefreshCw, Layers, Sparkles 
+  ArrowRight, Smartphone, Send, Loader2, 
+  MessageSquare, Zap, RefreshCw, Layers, Sparkles, Play 
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-
-// Points up out of pages/ to src/ and into services/
 import API from '../services/api'
 import SMSConfigForm from '../components/sms/SMSConfigForm'
 import SMSQueueTable from '../components/sms/SMSQueueTable'
@@ -18,17 +16,14 @@ export default function SMSPage() {
 
   useEffect(() => {
     refreshDashboard()
-    const pollInterval = setInterval(refreshDashboard, 8000) // Live-refresh data records every 8 seconds
+    const pollInterval = setInterval(refreshDashboard, 8000)
     return () => clearInterval(pollInterval)
   }, [])
 
   const refreshDashboard = async () => {
     try {
-      // Change from: API.get('/api/v1/sms/queue-status')
       const metricRes = await API.get('/sms/queue-status')
       setMetrics(metricRes.data)
-      
-      // Change from: API.get('/api/v1/sms/logs')
       const logRes = await API.get('/sms/logs')
       setLogs(logRes.data)
     } catch (err) {
@@ -41,7 +36,6 @@ export default function SMSPage() {
     if (!manualSMS.phone_number || !manualSMS.message_body) return
     setSending(true)
     try {
-      // Change from: API.post('/api/v1/sms/enqueue', manualSMS)
       await API.post('/sms/enqueue', manualSMS)
       toast.success('Message injected safely into pacing queue stream.')
       setManualSMS({ phone_number: '', message_body: '', lead_name: '' })
@@ -56,24 +50,21 @@ export default function SMSPage() {
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto text-slate-800">
       
-      {/* SECTION HEADER BLOCK */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900 flex items-center gap-2">
-            Android SMS Gateway
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">Route high-conversion personalized sales texts 100% free using local SIM hardware.</p>
+          <h1 className="text-2xl font-black tracking-tight text-slate-900">Android SMS Gateway</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Route automated sales texts 100% free using your local unlimited SIM package.</p>
         </div>
         <button 
           onClick={refreshDashboard}
           className="h-9 px-4 border border-slate-200 bg-white hover:bg-slate-50 rounded-xl text-xs font-bold flex items-center gap-2 transition shadow-xs"
         >
           <RefreshCw className="h-3.5 w-3.5 text-slate-500" />
-          Refresh Pipeline Status
+          Refresh Status
         </button>
       </div>
 
-      {/* EASY ONBOARDING SETUP GUIDE AND INSTALL LINK */}
+      {/* NEW VERIFIED GOOGLE PLAY ONBOARDING INSTRUCTIONS */}
       <div className="bg-gradient-to-br from-slate-900 to-slate-950 text-white rounded-2xl p-6 shadow-md border border-slate-800 relative overflow-hidden">
         <div className="absolute top-0 right-0 p-8 opacity-5 transform translate-x-4 -translate-y-4 hidden lg:block">
           <Smartphone className="h-64 w-64" />
@@ -81,48 +72,48 @@ export default function SMSPage() {
 
         <div className="max-w-3xl space-y-5">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 border border-white/10 rounded-full text-[11px] font-bold tracking-wider uppercase text-slate-300">
-            <Sparkles className="h-3 w-3 text-amber-400" /> Setup Instructions
+            <Sparkles className="h-3 w-3 text-amber-400" /> Play Store Integration
           </div>
           
           <div>
-            <h2 className="text-xl font-extrabold tracking-tight">Connect your Android device in 3 steps</h2>
-            <p className="text-xs text-slate-400 mt-1">Transform any unlimited text SIM card into your private, zero-cost programmatic automation node.</p>
+            <h2 className="text-xl font-extrabold tracking-tight">Connect via official SMS Gateway App</h2>
+            <p className="text-xs text-slate-400 mt-1">100% Play Protect Verified. Zero sideloading warnings or security alerts for your device.</p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs pt-2">
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">1</div>
-              <p className="font-bold text-white">Download the App</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Click the green button to pull down the verified application package onto your handset.</p>
+              <p className="font-bold text-white">Find on Play Store</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Open Google Play, search for <strong>"SMS Gateway"</strong> by <em>Infinireach</em>, and install it.</p>
             </div>
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">2</div>
-              <p className="font-bold text-white">Turn on Cloud Relay</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Open the application. Toggle "Start Service" to automatically initialize your secure secure tokens.</p>
+              <p className="font-bold text-white">Copy Webhook URL</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Launch the app on your phone, go to settings, and locate the generated Cloud Webhook endpoint string.</p>
             </div>
             <div className="bg-white/5 border border-white/5 p-4 rounded-xl space-y-2">
               <div className="h-6 w-6 rounded-lg bg-white/10 flex items-center justify-center font-black text-white text-xs">3</div>
-              <p className="font-bold text-white">Sync Security Pairs</p>
-              <p className="text-slate-400 leading-relaxed text-[11px]">Copy the unique <strong>Login ID</strong> and <strong>Password</strong> from your screen and paste them into the form below.</p>
+              <p className="font-bold text-white">Sync Dashboard</p>
+              <p className="text-slate-400 leading-relaxed text-[11px]">Paste that exact Webhook URL into the configuration card below, click save, and you're fully connected!</p>
             </div>
           </div>
 
           <div className="pt-2">
             <a 
-              href="https://sms-gate.app" 
+              href="https://play.google.com/store/search?q=SMS%20Gateway%20Infinireach&c=apps" 
               target="_blank" 
               rel="noreferrer"
-              className="inline-flex items-center gap-2 h-10 px-5 bg-emerald-500 hover:bg-emerald-400 active:bg-emerald-600 text-slate-950 text-xs font-extrabold rounded-xl shadow-md transition"
+              className="inline-flex items-center gap-2 h-10 px-5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-extrabold rounded-xl shadow-md transition"
             >
-              <Download className="h-4 w-4 stroke-[2.5]" />
-              Download SMS Gateway Mobile App (sms-gate.app)
+              <Play className="h-3.5 w-3.5 fill-current stroke-none" />
+              Open Google Play Store Search
               <ArrowRight className="h-3.5 w-3.5 ml-1" />
             </a>
           </div>
         </div>
       </div>
 
-      {/* METRIC CARD STRIPS */}
+      {/* METRIC GRIDS */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { title: 'Awaiting Queue', val: metrics.pending_count, sub: 'Messages in stream', icon: Layers, css: 'text-amber-600 bg-amber-50 border-amber-100' },
@@ -146,19 +137,17 @@ export default function SMSPage() {
         })}
       </div>
 
-      {/* SUB-DASHBOARD DIVISION CONTROL SHEETS */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <div className="lg:col-span-1 space-y-6">
           <SMSConfigForm onConfigUpdated={refreshDashboard} />
 
-          {/* PHONE ONLY MANUAL INSERTION TERMINAL */}
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
             <div>
               <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <Send className="h-4 w-4 text-slate-500" />
                 Manual Lead Dispatch
               </h3>
-              <p className="text-xs text-slate-500 mt-0.5">Test routing by manually injecting a text task entry.</p>
+              <p className="text-xs text-slate-500 mt-0.5">Inject an ad-hoc test text task entry directly into the pacing loop.</p>
             </div>
 
             <form onSubmit={handleManualEnqueue} className="space-y-3.5">
@@ -190,7 +179,7 @@ export default function SMSPage() {
                 <textarea
                   required
                   rows="3"
-                  placeholder="Type message context here... (Dynamic parameters map cleanly)"
+                  placeholder="Type message context here..."
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-900 text-xs font-medium text-slate-700 resize-none leading-relaxed"
                   value={manualSMS.message_body}
                   onChange={e => setManualSMS({ ...manualSMS, message_body: e.target.value })}
@@ -200,7 +189,7 @@ export default function SMSPage() {
               <button
                 type="submit"
                 disabled={sending}
-                className="w-full h-9 bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition disabled:opacity-50 shadow-xs"
+                className="w-full h-9 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition disabled:opacity-50 shadow-xs"
               >
                 {sending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Queue Outbound Text Task'}
               </button>
@@ -208,7 +197,6 @@ export default function SMSPage() {
           </div>
         </div>
 
-        {/* DATA REVIEWS SHEET */}
         <div className="lg:col-span-2 h-full">
           <SMSQueueTable logs={logs} />
         </div>
