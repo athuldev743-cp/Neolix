@@ -22,7 +22,7 @@ const MSG_TYPES = [
 ]
 
 // ═══════════════════════════════════════════════════════════
-// BAILEYS LINK AUTH MANAGER
+// BAILEYS LINK AUTH MONITOR
 // ═══════════════════════════════════════════════════════════
 function BaileysConnectionStatus() {
   const [status, setStatus] = useState({ connected: false, qr: null, loading: true })
@@ -48,7 +48,7 @@ function BaileysConnectionStatus() {
 
   useEffect(() => {
     checkStatus()
-    const iv = setInterval(checkStatus, 2500) // Fast 2.5s poll loops to stop rotation drops
+    const iv = setInterval(checkStatus, 2500)
     return () => clearInterval(iv)
   }, [])
 
@@ -117,9 +117,9 @@ function CampaignList({ onCreate, onSingle, onDetail }) {
       {loading && <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin text-emerald-500" /></div>}
 
       {!loading && camps.length === 0 && (
-        <div className="card flex flex-col items-center justify-center py-16 text-slate-400">
+        <div className="card flex flex-col items-center justify-center py-20 text-slate-400">
           <MessageSquare size={32} className="mb-2 text-slate-200" />
-          <p className="text-sm">No active orchestration matrices found.</p>
+          <p className="text-sm">No active orchestration campaigns found.</p>
         </div>
       )}
 
@@ -150,7 +150,7 @@ function CampaignList({ onCreate, onSingle, onDetail }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CAMPAIGN DETAIL ARCHIVE LOGS
+// CAMPAIGN DETAIL LOG VIEW
 // ═══════════════════════════════════════════════════════════
 function CampaignDetail({ id, onBack }) {
   const [data, setData] = useState(null)
@@ -209,16 +209,16 @@ function CampaignDetail({ id, onBack }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// MULTI-VARIANT CAMPAIGN ENGINE GENERATION WORKFLOW
+// CAMPAIGN CREATE VIEW
 // ═══════════════════════════════════════════════════════════
 function CampaignCreate({ onBack, onDone }) {
   const [form, setForm] = useState({ campaign_name: '', personalise: true, daily_limit: 50, send_order: 'as_selected' })
   const [selected, setSelected] = useState(new Map())
   const [activeTypes, setActiveTypes] = useState(new Set(['detailed']))
   const [messages, setMessages] = useState({ hook: '', detailed: '', image: '' })
-  const [previews, setPreviews] = useState({ hook: null, detailed: null, image: null })
+  const [allPreviews, setAllPreviews] = useState({ hook: null, detailed: null, image: null })
   
-  const [focusedType, setFocusedType] = useState('detailed') // Tracking active viewport panel focus 
+  const [focusedType, setFocusedType] = useState('detailed') 
   const [previewIdx, setPreviewIdx] = useState(0)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
@@ -231,43 +231,61 @@ function CampaignCreate({ onBack, onDone }) {
   const toggleType = (id) => {
     setActiveTypes(prev => {
       const next = new Set(prev)
-      if (next.has(id)) { if (next.size > 1) next.delete(id); if(focusedType === id) setFocusedType(Array.from(next)[0]) } 
-      else { next.add(id); setFocusedType(id); }
+      if (next.has(id)) { 
+        if (next.size > 1) next.delete(id); 
+        if(focusedType === id) setFocusedType(Array.from(next)[0]) 
+      } else { 
+        next.add(id); 
+        setFocusedType(id); 
+      }
       return next
     })
   }
 
   const schedulePreview = () => {
     clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(loadPreview, 900)
+    timerRef.current = setTimeout(loadAllActivePreviews, 1000)
   }
 
-  const loadPreview = async () => {
-    if (selected.size === 0 || !messages[focusedType]?.trim()) return
+  const loadAllActivePreviews = async () => {
+    if (selected.size === 0) return
     const ids = Array.from(selected.keys())
     const targetId = ids[Math.min(previewIdx, ids.length - 1)]
     const cachedLead = selected.get(targetId) || {}
     const bDetails = cachedLead.business_description || cachedLead.business_details || '';
 
     setPreviewLoading(true)
+    const activeList = Array.from(activeTypes)
+
     try {
-      const { data } = await waApi.preview({
-        message: messages[focusedType],
-        lead_id: targetId,
-        lead_name: cachedLead.contact_name || cachedLead.name || '',
-        lead_company: cachedLead.company_name || cachedLead.company || '',
-        business_details: bDetails,
-        personalise: form.personalise,
-        message_type: focusedType
-      })
-      setPreviews(p => ({ ...p, [focusedType]: data?.message || '' }))
-    } catch {
+      await Promise.all(
+        activeList.map(async (type) => {
+          if (!messages[type]?.trim()) {
+            setAllPreviews(p => ({ ...p, [type]: null }))
+            return
+          }
+          try {
+            const { data } = await waApi.preview({
+              message: messages[type],
+              lead_id: targetId,
+              lead_name: cachedLead.contact_name || cachedLead.name || '',
+              lead_company: cachedLead.company_name || cachedLead.company || '',
+              business_details: bDetails,
+              personalise: form.personalise,
+              message_type: type
+            })
+            setAllPreviews(p => ({ ...p, [type]: data?.message || String(data || '') }))
+          } catch {
+            setAllPreviews(p => ({ ...p, [type]: 'Failed to parse variations context.' }))
+          }
+        })
+      )
     } finally {
       setPreviewLoading(false)
     }
   }
 
-  useEffect(() => { schedulePreview() }, [messages, focusedType, form.personalise, selected.size, previewIdx])
+  useEffect(() => { schedulePreview() }, [messages, activeTypes, form.personalise, selected.size, previewIdx])
 
   const triggerAIGenerate = async () => {
     setAiLoading(true)
@@ -278,31 +296,32 @@ function CampaignCreate({ onBack, onDone }) {
         message_type: focusedType, context_hint: target.hint
       })
       setMessages(p => ({ ...p, [focusedType]: data.message || '' }))
-      toast.success(`${target.label} structure compiled successfully`)
+      toast.success(`${target.label} template drafted`)
     } catch {
-      toast.error('Generation fault link drop')
+      toast.error('AI text generation failed')
     } finally {
       setAiLoading(false)
     }
   }
 
   const submitCampaignPipeline = async () => {
-    if (!form.campaign_name.trim()) return toast.error('Enter valid campaign grouping label')
-    if (selected.size === 0) return toast.error('Target set array is empty')
+    if (!form.campaign_name.trim()) return toast.error('Enter valid campaign label identity')
+    if (selected.size === 0) return toast.error('Target recipient group selector is empty')
     
-    // Check configured parameters are explicitly present before shipping array shapes
     const enabledList = Array.from(activeTypes)
     for(const type of enabledList) {
-      if(type !== 'image' && !messages[type]?.trim()) return toast.error(`Please compile your ${type.toUpperCase()} layout template content`)
+      if(type !== 'image' && !messages[type]?.trim()) return toast.error(`Please define template copy data for ${type.toUpperCase()}`)
     }
 
     setSubmitting(true)
     try {
+      const dailyLimitInt = parseInt(form.daily_limit, 10) || 50
+
       await waApi.campaignCreate({
         campaign_name: form.campaign_name,
-        lead_ids: leadIds,
+        lead_ids: leadIds.map(id => parseInt(id, 10) || id), 
         personalise: form.personalise,
-        daily_limit: form.daily_limit,
+        daily_limit: dailyLimitInt,
         send_order: form.send_order,
         selected_types: enabledList,
         hook_template: messages.hook || "",
@@ -310,10 +329,10 @@ function CampaignCreate({ onBack, onDone }) {
         image_template: messages.image || "",
         image_base64: imageUrl ? imageUrl.split(',')[1] : ""
       })
-      toast.success(`Cluster pipeline triggered for ${selected.size} targeted recipients`)
+      toast.success(`Multi-variant campaign deployment successful!`)
       setTimeout(onDone, 500)
-    } catch {
-      toast.error('Campaign schema processing crash validation rejection')
+    } catch (err) {
+      toast.error(err.response?.data?.detail || 'Payload constraint validation failure')
     } finally {
       setSubmitting(false)
     }
@@ -332,17 +351,16 @@ function CampaignCreate({ onBack, onDone }) {
           <div className="card p-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div><label className="field-label">Identity Label</label><input className="input" placeholder="e.g. Combo Campaign - Tech Leads" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} /></div>
-              <div><label className="field-label">Daily Allocation Cap</label><input type="number" min={1} max={50} className="input" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: Math.min(parseInt(e.target.value) || 50, 50) })} /></div>
+              <div><label className="field-label">Daily Allocation Cap</label><input type="number" min={1} max={50} className="input" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value })} /></div>
             </div>
 
-            {/* Selection Combo Matrices Boxes Trigger */}
             <div>
               <label className="field-label mb-1.5 block">Select Active Variant Configuration Combo</label>
               <div className="grid grid-cols-3 gap-2">
                 {MSG_TYPES.map(t => {
                   const active = activeTypes.has(t.id)
                   return (
-                    <button key={t.id} onClick={() => toggleType(t.id)} className={`p-2.5 rounded-xl border font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition-all ${active ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                    <button key={t.id} type="button" onClick={() => toggleType(t.id)} className={`p-2.5 rounded-xl border font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition-all ${active ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
                       <TypeIcon id={t.id} size={14} />
                       {t.label} Variant
                     </button>
@@ -351,11 +369,10 @@ function CampaignCreate({ onBack, onDone }) {
               </div>
             </div>
 
-            {/* Dynamic Focus Tab Switcher viewport panels */}
             <div className="border-t pt-3 space-y-3">
               <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
                 {Array.from(activeTypes).map(typeId => (
-                  <button key={typeId} onClick={() => setFocusedType(typeId)} className={`flex-1 py-1 text-center font-bold text-xs rounded-lg uppercase transition-all ${focusedType === typeId ? 'bg-white shadow-2xs text-slate-900' : 'text-slate-400'}`}>
+                  <button key={typeId} type="button" onClick={() => setFocusedType(typeId)} className={`flex-1 py-1 text-center font-bold text-xs rounded-lg uppercase transition-all ${focusedType === typeId ? 'bg-white shadow-2xs text-slate-900' : 'text-slate-400'}`}>
                     Edit {typeId}
                   </button>
                 ))}
@@ -366,7 +383,7 @@ function CampaignCreate({ onBack, onDone }) {
                   {imageUrl ? (
                     <div className="relative mb-2 w-full h-24 border rounded-xl overflow-hidden"><img src={imageUrl} className="w-full h-full object-cover" /><button onClick={() => setImageUrl(null)} className="absolute top-1 right-1 p-1 bg-white rounded-full shadow border"><X size={10} /></button></div>
                   ) : (
-                    <button onClick={() => { const i = document.createElement('input'); i.type='file'; i.accept='image/*'; i.onchange=e=>{ const f=e.target.files[0]; const r=new FileReader(); r.onload=ev=>setImageUrl(ev.target.result); r.readAsDataURL(f) }; i.click() }} className="w-full h-20 border-2 border-dashed rounded-xl text-xs text-slate-400 flex flex-col items-center justify-center gap-1"><Image size={15} /> Upload Media Attachment Layer</button>
+                    <button type="button" onClick={() => { const i = document.createElement('input'); i.type='file'; i.accept='image/*'; i.onchange=e=>{ const f=e.target.files[0]; const r=new FileReader(); r.onload=ev=>setImageUrl(ev.target.result); r.readAsDataURL(f) }; i.click() }} className="w-full h-20 border-2 border-dashed rounded-xl text-xs text-slate-400 flex flex-col items-center justify-center gap-1"><Image size={15} /> Upload Media Attachment Layer</button>
                   )}
                 </div>
               )}
@@ -374,54 +391,66 @@ function CampaignCreate({ onBack, onDone }) {
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-slate-500 uppercase">{activeConfigMeta?.label} Base Content</span>
-                  <button onClick={triggerAIGenerate} disabled={aiLoading} className="text-xs font-bold text-emerald-600 flex items-center gap-1">{aiLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} Compile Template Asset</button>
+                  <button type="button" onClick={triggerAIGenerate} disabled={aiLoading} className="text-xs font-bold text-emerald-600 flex items-center gap-1">{aiLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} AI Generate Template</button>
                 </div>
                 <textarea className="textarea h-32 font-mono text-xs" value={messages[focusedType]} onChange={e => setMessages({ ...messages, [focusedType]: e.target.value })} placeholder={activeConfigMeta?.placeholder} />
               </div>
             </div>
 
             <div className="flex items-center justify-between py-2 border-t text-xs">
-              <div><p className="font-bold text-slate-700">Dynamic Profile Rewriting Engine</p><p className="text-slate-400">Context schema variables inject automatically from the database index profile matching metrics.</p></div>
-              <button onClick={() => setForm({ ...form, personalise: !form.personalise })} className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${form.personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.personalise ? 'left-5' : 'left-0.5'}`} /></button>
+              <div><p className="font-bold text-slate-700">Dynamic Profile Rewriting Engine</p><p className="text-slate-400">Context variables populate straight out of target database fields profile data vectors.</p></div>
+              <button type="button" onClick={() => setForm({ ...form, personalise: !form.personalise })} className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${form.personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.personalise ? 'left-5' : 'left-0.5'}`} /></button>
             </div>
           </div>
 
           <div className="card p-5"><label className="field-label mb-2 block">Recipient Segment Node Target</label><LeadSelector selected={selected} onChange={setSelected} requirePhone={true} /></div>
         </div>
 
-        {/* Live Multi-Variant Simulator Workspace View */}
         <div>
-          <div className="card p-5 sticky top-6 space-y-4">
-            <div className="flex justify-between items-center">
-              <span className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1"><Eye size={13} /> Simulation Viewport Panel</span>
+          <div className="card p-5 sticky top-6 space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center border-b pb-2">
+              <span className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1"><Eye size={13} /> Active Campaign Previews Stack</span>
               {leadIds.length > 1 && (
                 <div className="flex items-center gap-1 text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border">
-                  <button onClick={() => setPreviewIdx(p => Math.max(0, p - 1))} disabled={previewIdx === 0} className="font-bold">‹</button>
+                  <button type="button" onClick={() => setPreviewIdx(p => Math.max(0, p - 1))} disabled={previewIdx === 0} className="font-bold">‹</button>
                   <span>{previewIdx + 1}/{leadIds.length}</span>
-                  <button onClick={() => setPreviewIdx(p => Math.min(leadIds.length - 1, p + 1))} disabled={previewIdx >= leadIds.length - 1} className="font-bold">›</button>
+                  <button type="button" onClick={() => setPreviewIdx(p => Math.min(leadIds.length - 1, p + 1))} disabled={previewIdx >= leadIds.length - 1} className="font-bold">›</button>
                 </div>
               )}
             </div>
 
-            {selected.size === 0 && <div className="py-12 text-center text-xs text-slate-400 border border-dashed rounded-xl">Select a customer data tracking row item parameter logic to view dynamic response matrices</div>}
-            {previewLoading && <div className="py-12 flex justify-center"><Loader2 size={16} className="animate-spin text-emerald-500" /></div>}
+            {selected.size === 0 && <div className="py-12 text-center text-xs text-slate-400 border border-dashed rounded-xl">Select leads to simulate dynamic response matrices stack outputs</div>}
+            {previewLoading && <div className="py-8 flex justify-center"><Loader2 size={16} className="animate-spin text-emerald-500" /> Preparing pipeline configurations...</div>}
 
-            {!previewLoading && messages[focusedType]?.trim() && selected.size > 0 && (
-              <div className="space-y-3 fade-up">
-                <p className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Simulated Device Output Layout ({focusedType}):</p>
-                <div className="p-4 rounded-xl shadow-inner border" style={{ backgroundColor: '#e5ddd5' }}>
-                  <div className="flex justify-end">
-                    <div className="bg-[#dcf8c6] p-3 rounded-2xl rounded-tr-none shadow-2xs max-w-[85%] text-xs space-y-1 text-slate-800 leading-relaxed">
-                      {focusedType === 'image' && imageUrl && <img src={imageUrl} className="w-full h-20 object-cover rounded-lg mb-1" />}
-                      <p className="whitespace-pre-wrap">{previews[focusedType] || messages[focusedType]}</p>
+            {!previewLoading && selected.size > 0 && (
+              <div className="space-y-4 fade-up">
+                {Array.from(activeTypes).map((type) => {
+                  const previewText = allPreviews[type];
+                  if (!previewText && !messages[type]?.trim()) return null;
+                  
+                  return (
+                    <div key={type} className="space-y-1">
+                      <p className="text-[9px] font-black text-slate-400 uppercase flex items-center gap-1">
+                        <TypeIcon id={type} size={10} /> {type.toUpperCase()} Outbound Stream Variant
+                      </p>
+                      <div className="p-3.5 rounded-xl border relative shadow-2xs" style={{ backgroundColor: '#e5ddd5' }}>
+                        <div className="flex justify-end">
+                          <div className="bg-[#dcf8c6] p-3 rounded-2xl rounded-tr-none shadow-3xs max-w-[85%] text-xs text-slate-800 leading-relaxed">
+                            {type === 'image' && imageUrl && <img src={imageUrl} alt="Attached Data Asset" className="w-full h-24 object-cover rounded-lg mb-1.5 border" />}
+                            <p className="whitespace-pre-wrap">{previewText || messages[type]}</p>
+                            <p className="text-[9px] text-slate-400 text-right mt-1">✓✓</p>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  )
+                })}
 
                 <div className="p-3 bg-slate-50 border rounded-xl text-[11px] text-slate-500 space-y-0.5">
-                  <span className="font-bold text-slate-700 block mb-1">Target Account Profile Verification Checklist:</span>
-                  <p><strong className="text-slate-600">Company Name:</strong> {activeLead?.company_name || activeLead?.company || '-'}</p>
-                  <p className="line-clamp-2"><strong className="text-slate-600">Context Summary Vector:</strong> {activeLead?.business_description || activeLead?.business_details || 'Empty value string field context'}</p>
+                  <span className="font-bold text-slate-700 block mb-0.5">Target Account Metadata Parameters:</span>
+                  <p><strong className="text-slate-600">Recipient Name:</strong> {activeLead?.contact_name || activeLead?.name || 'Unspecified Node'}</p>
+                  <p><strong className="text-slate-600">Company Group:</strong> {activeLead?.company_name || activeLead?.company || '-'}</p>
+                  <p className="line-clamp-2"><strong className="text-slate-600">AI Context Vector Profile:</strong> {activeLead?.business_description || activeLead?.business_details || 'No data found'}</p>
                 </div>
               </div>
             )}
@@ -430,8 +459,8 @@ function CampaignCreate({ onBack, onDone }) {
       </div>
 
       <div className="flex gap-2 justify-end pt-3 border-t">
-        <button onClick={onBack} className="px-4 py-1.5 text-xs border rounded-xl font-bold hover:bg-slate-50">Cancel</button>
-        <button onClick={submitCampaignPipeline} disabled={submitting || selected.size === 0} className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
+        <button type="button" onClick={onBack} className="px-4 py-1.5 text-xs border rounded-xl font-bold hover:bg-slate-50">Cancel</button>
+        <button type="button" onClick={submitCampaignPipeline} disabled={submitting || selected.size === 0} className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
           {submitting ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Deploy Strategy Matrix
         </button>
       </div>
@@ -492,7 +521,7 @@ function WhatsAppSingleSend() {
   }
 
   const previewSingleType = async (type) => {
-    if (!messages[type]?.trim()) return toast.error('Enter content layout parameter parameters text first')
+    if (!messages[type]?.trim()) return toast.error('Enter copy text body parameters first')
     setPreviewing(p => ({ ...p, [type]: true }))
     try {
       const { data } = await waApi.preview({
@@ -510,7 +539,7 @@ function WhatsAppSingleSend() {
   }
 
   const executeSend = async () => {
-    if (!lead?.phone) return toast.error('Select target recipient index node handle parameter parameters configuration')
+    if (!lead?.phone) return toast.error('Select recipient target node context handle')
     const types = Array.from(activeTypes)
     setSending(true)
     const sent = new Set()
@@ -519,7 +548,7 @@ function WhatsAppSingleSend() {
       const finalMsg = previews[type]?.message || messages[type] || ''
       try {
         if (type === 'image') {
-          if (!imageFile) { toast.error('Upload image file attachment'); continue }
+          if (!imageFile) { toast.error('Attach source image file first'); continue }
           await new Promise((resolve, reject) => {
             const reader = new FileReader()
             reader.onload = async () => {
@@ -537,13 +566,13 @@ function WhatsAppSingleSend() {
           sent.add(type)
         }
       } catch {
-        toast.error(`Fault drop-off on output branch element ${type.toUpperCase()}`)
+        toast.error(`Fault drop-off on direct channel route branch ${type.toUpperCase()}`)
       }
     }
 
     setSending(false)
     if (sent.size > 0) {
-      toast.success('Dispatched variant operations stack successfully')
+      toast.success('Dispatched variant targets safely')
       setSentTypes(sent)
       setTimeout(() => {
         setLead(null); setMessages({ hook: '', detailed: '', image: '' }); setPreviews({ hook: null, detailed: null, image: null });
@@ -561,7 +590,10 @@ function WhatsAppSingleSend() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-6xl mx-auto items-start">
       <div className="space-y-4">
-        <div className="card p-5"><span className="field-label mb-2 block">Direct Target Node Picker</span><LeadSelector selected={lead ? new Map([[lead.id, lead]]) : new Map()} onChange={(map) => setLead(Array.from(map.values())[0] || null)} requirePhone={true} /></div>
+        <div className="card p-5">
+          <span className="field-label mb-2 block">Direct Target Node Picker</span>
+          <LeadSelector selected={lead ? new Map([[lead.id, lead]]) : new Map()} onChange={(map) => setLead(Array.from(map.values())[0] || null)} requirePhone={true} />
+        </div>
         {lead && (
           <div className="card p-3 bg-slate-50 border text-xs text-slate-500 space-y-0.5 fade-up">
             <span className="font-bold text-slate-700 block">Target Account Summary:</span>
@@ -578,7 +610,7 @@ function WhatsAppSingleSend() {
                 const active = activeTypes.has(t.id)
                 const colors = TYPE_COLORS[t.id]
                 return (
-                  <button key={t.id} onClick={() => toggleType(t.id)} className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all ${active ? `${colors.pill} border-current` : 'bg-slate-50 text-slate-400'}`}>
+                  <button key={t.id} type="button" onClick={() => toggleType(t.id)} className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all ${active ? `${colors.pill} border-current` : 'bg-slate-50 text-slate-400'}`}>
                     <span className="flex items-center gap-1.5"><TypeIcon id={t.id} /> {t.label} Layout</span>
                     {active && <Check size={12} />}
                   </button>
@@ -586,7 +618,7 @@ function WhatsAppSingleSend() {
               })}
             </div>
           </div>
-          <button onClick={executeSend} disabled={sending || !lead} className="btn-primary w-full justify-center text-xs font-bold py-2">{sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Execute Single Send Dispatch</button>
+          <button type="button" onClick={executeSend} disabled={sending || !lead} className="btn-primary w-full justify-center text-xs font-bold py-2">{sending ? <Loader2 size={12} className="animate-spin"/> : <Send size={12}/>} Execute Single Send Dispatch</button>
         </div>
       </div>
 
@@ -597,7 +629,7 @@ function WhatsAppSingleSend() {
             <div key={t.id} className="card p-5 space-y-3">
               <div className="flex justify-between items-center border-b pb-1.5">
                 <span className={`text-xs font-black uppercase tracking-wider flex items-center gap-1 ${colors.header}`}><TypeIcon id={t.id} /> {t.label} Layer</span>
-                <button onClick={() => generateSingleMsg(t.id)} disabled={generating[t.id]} className="text-xs font-bold text-emerald-600 flex items-center gap-1">{generating[t.id] ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} AI Compile</button>
+                <button type="button" onClick={() => generateSingleMsg(t.id)} disabled={generating[t.id]} className="text-xs font-bold text-emerald-600 flex items-center gap-1">{generating[t.id] ? <Loader2 size={11} className="animate-spin"/> : <Sparkles size={11}/>} AI Compile</button>
               </div>
 
               {t.id === 'image' && (
@@ -605,7 +637,7 @@ function WhatsAppSingleSend() {
                   {imageUrl ? (
                     <div className="relative w-full h-20 border rounded-xl overflow-hidden mb-2"><img src={imageUrl} className="w-full h-full object-cover" /><button onClick={() => { setImageFile(null); setImageUrl(null) }} className="absolute top-1 right-1 p-1 bg-white border rounded-full shadow"><X size={10} /></button></div>
                   ) : (
-                    <button onClick={() => imagePickRef.current?.click()} className="w-full h-16 border-2 border-dashed text-slate-400 text-xs flex flex-col items-center justify-center rounded-xl gap-1"><Image size={14} /> Link Dynamic Image File Asset</button>
+                    <button type="button" onClick={() => imagePickRef.current?.click()} className="w-full h-16 border-2 border-dashed text-slate-400 text-xs flex flex-col items-center justify-center rounded-xl gap-1"><Image size={14}/> Link Dynamic Image File Asset</button>
                   )}
                   <input ref={imagePickRef} type="file" accept="image/*" className="hidden" onChange={e => { const f=e.target.files[0]; if(f){ setImageFile(f); const r=new FileReader(); r.onload=ev=>setImageUrl(ev.target.result); r.readAsDataURL(f) } }} />
                 </div>
@@ -613,7 +645,7 @@ function WhatsAppSingleSend() {
 
               <textarea className="textarea font-mono text-xs h-24" value={messages[t.id]} onChange={e => setMsg(t.id, e.target.value)} placeholder={t.placeholder} />
               <div className="flex gap-2 items-start">
-                <button onClick={() => previewSingleType(t.id)} disabled={previewing[t.id] || !messages[t.id]?.trim()} className="btn-secondary py-1 text-xs px-3 font-bold flex items-center gap-1">{previewing[t.id] ? <Loader2 size={11} className="animate-spin" /> : <Eye size={11} />} Parse Sandbox</button>
+                <button type="button" onClick={() => previewSingleType(t.id)} disabled={previewing[t.id] || !messages[t.id]?.trim()} className="btn-secondary py-1 text-xs px-3 font-bold flex items-center gap-1">{previewing[t.id] ? <Loader2 size={11} className="animate-spin"/> : <Eye size={11}/>} Parse Sandbox</button>
                 {previews[t.id] && <div className={`flex-1 p-2.5 rounded-xl border text-xs whitespace-pre-wrap leading-relaxed ${colors.preview}`}>{previews[t.id].message || previews[t.id]}</div>}
               </div>
             </div>
@@ -634,8 +666,7 @@ export default function WhatsAppPage() {
   return (
     <div className="p-1 space-y-4 max-w-7xl mx-auto">
       {view === 'list' && (
-        <CampaignList
-          onCreate={() => setView('create')}
+        <CampaignList onCreate={() => setView('create')}
           onSingle={() => setView('single')}
           onDetail={id => { setDetailId(id); setView('detail') }}
         />
@@ -644,8 +675,8 @@ export default function WhatsAppPage() {
       {view === 'detail' && <CampaignDetail id={detailId} onBack={() => setView('list')} />}
       {view === 'single' && (
         <div className="space-y-4">
-          <button onClick={() => setView('list')} className="btn-ghost -ml-2 text-xs font-bold flex items-center gap-1 text-slate-400 hover:text-slate-800"><ChevronLeft size={14} /> Back to core monitor</button>
-          <WhatsAppSingleSend />
+          <button type="button" onClick={() => setView('list')} className="btn-ghost -ml-2 text-xs font-bold flex items-center gap-1 text-slate-400 hover:text-slate-800"><ChevronLeft size={14}/> Back to core monitor</button>
+          <WhatsAppSingleSend/>
         </div>
       )}
     </div>
