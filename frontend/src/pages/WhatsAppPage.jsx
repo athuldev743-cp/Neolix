@@ -25,17 +25,37 @@ const MSG_TYPES = [
 // ═══════════════════════════════════════════════════════════
 // BAILEYS CONNECTION MANAGER (QR BASE64 SANITIZATION FIX)
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// BAILEYS CONNECTION MANAGER (FAST SYNC DEBOUNCER FIX)
+// ═══════════════════════════════════════════════════════════
 function BaileysConnectionStatus() {
   const [status, setStatus] = useState({ connected: false, qr: null, loading: true })
+  const lastQrRef = useRef(null)
 
   const checkStatus = async () => {
     try {
       const { data } = await waApi.status()
-      setStatus({
-        connected: !!data?.connected,
-        qr: data?.qr || null,
-        loading: false
-      })
+      
+      // If the backend has logged in, stop the cycle instantly
+      if (data?.connected) {
+        setStatus({ connected: true, qr: null, loading: false })
+        return
+      }
+
+      // Fetch a fresh token stream lease
+      const qrRes = await fetch('https://omniv2.onrender.com/qr').then(r => r.json())
+      
+      if (qrRes.status === 'pending' && qrRes.qr) {
+        // Debouncer check: Only update state if a completely new code is issued
+        if (qrRes.qr !== lastQrRef.current) {
+          lastQrRef.current = qrRes.qr
+          setStatus({ connected: false, qr: qrRes.qr, loading: false })
+        }
+      } else if (qrRes.status === 'connected') {
+        setStatus({ connected: true, qr: null, loading: false })
+      } else {
+        setStatus(p => ({ ...p, loading: false }))
+      }
     } catch {
       setStatus(p => ({ ...p, loading: false }))
     }
@@ -43,66 +63,43 @@ function BaileysConnectionStatus() {
 
   useEffect(() => {
     checkStatus()
-    const iv = setInterval(checkStatus, 6000) // Poll every 6 seconds to capture immediate linking
+    // Drop execution window to 2.5s to catch immediate transitions reactively
+    const iv = setInterval(checkStatus, 2500)
     return () => clearInterval(iv)
   }, [])
 
-  if (status.loading) {
-    return (
-      <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2">
-        <Loader2 size={13} className="animate-spin text-slate-800" /> 
-        Synchronizing with external cellular gateway container state...
-      </div>
-    )
-  }
+  if (status.loading) return <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2"><Loader2 size={13} className="animate-spin text-slate-800" /> Connecting to network routing nodes...</div>
 
-  if (status.connected) {
-    return (
-      <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800 animate-fade-in">
-        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0" />
-        <div className="text-xs">
-          <p className="font-bold">Baileys WA Protocol Active</p>
-          <p className="opacity-80">Device pipeline linked seamlessly to operational instance.</p>
-        </div>
-      </div>
-    )
-  }
-
-  // Cleanup block to catch duplicate data URI declarations
-  const renderQrSrc = () => {
-    if (!status.qr) return null;
-    // Strip redundant headers if backend passes them down nested
-    let cleanB64 = status.qr.replace(/^data:image\/[a-z]+;base64,/, '');
-    return `data:image/png;base64,${cleanB64}`;
-  }
+  if (status.connected) return (
+    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800 animate-fade-in">
+      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0" />
+      <div className="text-xs font-bold">Baileys Pipeline Link Active & Authenticated</div>
+    </div>
+  )
 
   return (
     <div className="p-5 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-5 animate-fade-in">
       <div className="space-y-1.5 text-center md:text-left max-w-md">
         <h3 className="text-xs font-black uppercase text-amber-800 tracking-wider flex items-center justify-center md:justify-start gap-1.5">
           <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-          Baileys Socket Authentication Pending
+          WhatsApp Authenticator Active
         </h3>
         <p className="text-xs text-amber-700 leading-relaxed">
-          Open WhatsApp on your mobile terminal ──► Linked Devices ──► Scan the active cryptographic QR matrix to map the multi-tenant SaaS profile context.
+          QR codes change every 20 seconds due to secure protocol standards. Scan immediately upon refresh to map the socket session context.
         </p>
       </div>
       
-      <div className="bg-white p-3 rounded-2xl border border-amber-200/70 shadow-sm flex items-center justify-center flex-shrink-0 w-44 h-44 bg-slate-50">
+      <div className="bg-white p-3 rounded-2xl border border-amber-200/70 shadow-sm flex items-center justify-center flex-shrink-0 w-44 h-44">
         {status.qr ? (
           <img 
-            src={renderQrSrc()} 
+            src={`data:image/png;base64,${status.qr}`} 
             alt="Baileys QR Connection Stream" 
             className="w-full h-full object-contain select-none"
-            onError={(e) => {
-              console.error("QR Rendering Fault Exception context:", status.qr);
-              toast.error("Format mutation matching source data error");
-            }}
           />
         ) : (
           <div className="text-center space-y-2 text-slate-400 p-2">
             <Loader2 size={16} className="animate-spin mx-auto text-amber-600" />
-            <p className="text-[10px] leading-tight font-medium">Awaiting clean connection token stream lease from upstream container...</p>
+            <p className="text-[10px] leading-tight font-medium">Awaiting fresh token lease...</p>
           </div>
         )}
       </div>
