@@ -23,7 +23,7 @@ const MSG_TYPES = [
 ]
 
 // ═══════════════════════════════════════════════════════════
-// BAILEYS CONNECTION MANAGER (QR SCREEN FIX)
+// BAILEYS CONNECTION MANAGER (QR BASE64 SANITIZATION FIX)
 // ═══════════════════════════════════════════════════════════
 function BaileysConnectionStatus() {
   const [status, setStatus] = useState({ connected: false, qr: null, loading: true })
@@ -43,39 +43,66 @@ function BaileysConnectionStatus() {
 
   useEffect(() => {
     checkStatus()
-    const iv = setInterval(checkStatus, 7000)
+    const iv = setInterval(checkStatus, 6000) // Poll every 6 seconds to capture immediate linking
     return () => clearInterval(iv)
   }, [])
 
-  if (status.loading) return <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Fetching Baileys Node state...</div>
-
-  if (status.connected) return (
-    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800">
-      <CheckCircle2 size={18} className="text-emerald-600 flex-shrink-0" />
-      <div className="text-xs">
-        <p className="font-bold">Baileys API Bridge Connected</p>
-        <p className="opacity-80">Device linked successfully onto omniv2.onrender.com</p>
+  if (status.loading) {
+    return (
+      <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2">
+        <Loader2 size={13} className="animate-spin text-slate-800" /> 
+        Synchronizing with external cellular gateway container state...
       </div>
-    </div>
-  )
+    )
+  }
+
+  if (status.connected) {
+    return (
+      <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800 animate-fade-in">
+        <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0" />
+        <div className="text-xs">
+          <p className="font-bold">Baileys WA Protocol Active</p>
+          <p className="opacity-80">Device pipeline linked seamlessly to operational instance.</p>
+        </div>
+      </div>
+    )
+  }
+
+  // Cleanup block to catch duplicate data URI declarations
+  const renderQrSrc = () => {
+    if (!status.qr) return null;
+    // Strip redundant headers if backend passes them down nested
+    let cleanB64 = status.qr.replace(/^data:image\/[a-z]+;base64,/, '');
+    return `data:image/png;base64,${cleanB64}`;
+  }
 
   return (
-    <div className="p-5 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center gap-5">
-      <div className="flex-1 space-y-1.5 text-center md:text-left">
-        <h3 className="text-xs font-black uppercase text-amber-800 tracking-wider flex items-center justify-center md:justify-start gap-1">
-          <QrCode size={14} /> WhatsApp Link Required
+    <div className="p-5 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-5 animate-fade-in">
+      <div className="space-y-1.5 text-center md:text-left max-w-md">
+        <h3 className="text-xs font-black uppercase text-amber-800 tracking-wider flex items-center justify-center md:justify-start gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+          Baileys Socket Authentication Pending
         </h3>
         <p className="text-xs text-amber-700 leading-relaxed">
-          Open WhatsApp on your phone ──► Linked Devices ──► Scan the QR matrix code to connect your orchestration instance.
+          Open WhatsApp on your mobile terminal ──► Linked Devices ──► Scan the active cryptographic QR matrix to map the multi-tenant SaaS profile context.
         </p>
       </div>
-      <div className="bg-white p-3 rounded-xl border border-amber-200 shadow-sm flex items-center justify-center flex-shrink-0 w-40 h-40">
+      
+      <div className="bg-white p-3 rounded-2xl border border-amber-200/70 shadow-sm flex items-center justify-center flex-shrink-0 w-44 h-44 bg-slate-50">
         {status.qr ? (
-          <img src={`data:image/png;base64,${status.qr}`} alt="Baileys QR Code Matrix" className="w-full h-full object-contain" />
+          <img 
+            src={renderQrSrc()} 
+            alt="Baileys QR Connection Stream" 
+            className="w-full h-full object-contain select-none"
+            onError={(e) => {
+              console.error("QR Rendering Fault Exception context:", status.qr);
+              toast.error("Format mutation matching source data error");
+            }}
+          />
         ) : (
-          <div className="text-center space-y-1 text-slate-400">
-            <Loader2 size={16} className="animate-spin mx-auto text-slate-600" />
-            <p className="text-[10px]">Generating unique connection token...</p>
+          <div className="text-center space-y-2 text-slate-400 p-2">
+            <Loader2 size={16} className="animate-spin mx-auto text-amber-600" />
+            <p className="text-[10px] leading-tight font-medium">Awaiting clean connection token stream lease from upstream container...</p>
           </div>
         )}
       </div>
@@ -726,7 +753,8 @@ export default function WhatsAppPage() {
   const [detailId, setDetailId] = useState(null)
 
   return (
-    <div>
+    <div className="space-y-6 max-w-7xl mx-auto p-4 text-slate-800">
+      {/* Keeping Baileys Status mounted consistently at layout entry head */}
       {view === 'list' && (
         <CampaignList
           onCreate={() => setView('create')}
@@ -738,8 +766,8 @@ export default function WhatsAppPage() {
       {view === 'create' && <CampaignCreate onBack={() => setView('list')} onDone={() => setView('list')} />}
       {view === 'detail' && <CampaignDetail id={detailId} onBack={() => setView('list')} />}
       {view === 'single' && (
-        <div>
-          <button onClick={() => setView('list')} className="btn-ghost -ml-2 mb-4">
+        <div className="space-y-4">
+          <button type="button" onClick={() => setView('list')} className="btn-ghost -ml-2 mb-2">
             <ChevronLeft size={16} /> Back to campaigns
           </button>
           <WhatsAppSingleSend />
