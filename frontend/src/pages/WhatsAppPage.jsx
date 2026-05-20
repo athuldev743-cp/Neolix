@@ -699,9 +699,9 @@ function WhatsAppSingleSend() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// REPLIES VIEW INFRASTRUCTURE (REPLICATED NATIVELY)
+// UPDATED THREAD VIEW WITH PARENT LIFECYCLE SYNC HOOKS
 // ═══════════════════════════════════════════════════════════
-function ThreadView({ replyId, onClose }) {
+function ThreadView({ replyId, onClose, onRefreshParent }) { // ◄── Added onRefreshParent hook prop here
   const [thread, setThread] = useState(null)
   const [loading, setLoading] = useState(true)
   const [replyText, setReplyText] = useState('')
@@ -725,7 +725,10 @@ function ThreadView({ replyId, onClose }) {
       await repliesApi.respond(replyId, { body: replyText, use_ai: false })
       toast.success('Reply sent!')
       setReplyText('')
+      
+      // Fixed: Concurrently refresh local messages AND force update the main listing sidebar tracking caches
       await load()
+      if (onRefreshParent) onRefreshParent() 
     } catch { toast.error('Failed to send') } finally { setSending(false) }
   }
 
@@ -737,6 +740,8 @@ function ThreadView({ replyId, onClose }) {
       setReplyText(fresh.reply?.our_reply || '')
       setThread(fresh)
       toast.success('AI draft ready — edit and send')
+      
+      if (onRefreshParent) onRefreshParent()
     } catch { toast.error('AI failed') } finally { setAiLoading(false) }
   }
 
@@ -763,11 +768,11 @@ function ThreadView({ replyId, onClose }) {
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-white">
         {sent_item && (
-  <div className="flex flex-col items-end gap-1">
-    <p className="text-[10px] text-slate-400 uppercase tracking-wide">Your WhatsApp message · {timeAgo(sent_item.sent_at)}</p>
-    <div className="bubble-sent">{sent_item.body}</div>
-  </div>
-)}
+          <div className="flex flex-col items-end gap-1">
+            <p className="text-[10px] text-slate-400 uppercase tracking-wide">Your WhatsApp message · {timeAgo(sent_item.sent_at)}</p>
+            <div className="bubble-sent">{sent_item.body}</div>
+          </div>
+        )}
         <div className="flex flex-col items-start gap-1">
           <p className="text-[10px] text-slate-400 uppercase tracking-wide">{reply.from_name || 'Their reply'} · {timeAgo(reply.received_at)}</p>
           <div className="bubble-recv whitespace-pre-wrap">{reply.body_text}</div>
@@ -850,6 +855,7 @@ function RepliesTab() {
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 180px)' }}>
+      {/* Sub-tabs */}
       <div className="flex items-center gap-0 border-b border-slate-200 mb-0 flex-shrink-0">
         {[{ id: 'inbox', label: 'Inbox' }, { id: 'sent', label: 'Sent' }].map(t => (
           <button key={t.id} onClick={() => { setSubTab(t.id); setSelectedId(null); setSelectedSent(null) }}
@@ -873,7 +879,9 @@ function RepliesTab() {
         </div>
       </div>
 
+      {/* Body */}
       <div className="flex flex-1 overflow-hidden border border-slate-200 rounded-xl mt-3">
+        {/* List Side-panel */}
         <div className="w-80 flex-shrink-0 border-r border-slate-100 overflow-y-auto bg-white">
           {loading && <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin text-emerald-500" /></div>}
 
@@ -930,8 +938,19 @@ function RepliesTab() {
           ))}
         </div>
 
+        {/* Detail Chat Workspace Pane */}
         <div className="flex-1 overflow-hidden bg-white">
-          {subTab === 'inbox' && selectedId && <ThreadView replyId={selectedId} onClose={() => setSelectedId(null)} />}
+          {subTab === 'inbox' && selectedId && (
+            <ThreadView 
+              replyId={selectedId} 
+              onClose={() => setSelectedId(null)} 
+              onRefreshParent={() => {
+                // Instantly re-fetch inbox and sent datasets to sync conversation steps
+                loadInbox();
+                loadSent();
+              }}
+            />
+          )}
           {subTab === 'inbox' && !selectedId && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400">
               <Reply size={32} className="mb-3 text-slate-200" />
