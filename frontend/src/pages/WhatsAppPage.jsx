@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi } from '../services/api'
-// Importing the shared unified lead selector component
+// Shared unified lead selector component
 import LeadSelector from '../components/LeadSelector'
 
 const statusBadge = { running: 'badge-blue', completed: 'badge-green', queued: 'badge-gray', failed: 'badge-red', paused: 'badge-orange' }
@@ -212,6 +212,9 @@ function CampaignCreate({ onBack, onDone }) {
     const ids = Array.from(selected.keys())
     const currentLeadId = ids[Math.min(previewIdx, ids.length - 1)]
     const cachedLead = selected.get(currentLeadId) || {}
+
+    // Checking database field options sequentially to lock business context string safely
+    const bDetails = cachedLead.business_description || cachedLead.business_details || cachedLead.notes || '';
     
     setPreviewLoading(true)
     try {
@@ -220,15 +223,14 @@ function CampaignCreate({ onBack, onDone }) {
         lead_id: currentLeadId,
         lead_name: cachedLead.contact_name || cachedLead.name || '',
         lead_company: cachedLead.company_name || cachedLead.company || '',
-        // Explicitly ensuring business_details are mapped from the schema context map
-        business_details: cachedLead.business_details || cachedLead.business_description || '',
-        lead_business_details: cachedLead.business_details || cachedLead.business_description || '',
+        business_details: bDetails,
+        lead_business_details: bDetails,
         personalise: form.personalise,
         message_type: 'detailed'
       })
       setPreview(data && typeof data.message === 'string' ? data : { message: String(data?.message || '') })
     } catch {
-      /* fail silently on incomplete template parameters */
+      /* fail silently on keystroke parameters modification */
     } finally {
       setPreviewLoading(false)
     }
@@ -270,6 +272,8 @@ function CampaignCreate({ onBack, onDone }) {
       setSubmitting(false)
     }
   }
+
+  const activeLead = selected.get(leadIds[Math.min(previewIdx, leadIds.length - 1)])
 
   return (
     <div>
@@ -362,11 +366,13 @@ function CampaignCreate({ onBack, onDone }) {
                     </div>
                   </div>
                 </div>
-                {/* Visual debug section to confirm business context is parsed successfully */}
+                
                 <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs text-slate-500">
                   <span className="font-semibold block text-slate-700 mb-1">Active Prompting Metadata:</span>
-                  <p className="truncate"><strong className="text-slate-600">Company:</strong> {selected.get(leadIds[Math.min(previewIdx, leadIds.length - 1)])?.company_name || 'None'}</p>
-                  <p className="text-slate-600 mt-1"><strong className="text-slate-600">AI Context Profile:</strong> {selected.get(leadIds[Math.min(previewIdx, leadIds.length - 1)])?.business_details || 'No business description provided for this record'}</p>
+                  <p className="truncate"><strong className="text-slate-600">Name:</strong> {activeLead?.contact_name || activeLead?.name || '-'}</p>
+                  <p className="truncate"><strong className="text-slate-600">WhatsApp:</strong> {activeLead?.phone || '-'}</p>
+                  <p className="truncate"><strong className="text-slate-600">Company:</strong> {activeLead?.company_name || activeLead?.company || '-'}</p>
+                  <p className="text-slate-600 mt-1"><strong className="text-slate-600">AI Context Profile:</strong> {activeLead?.business_description || activeLead?.business_details || 'No business details found'}</p>
                 </div>
               </div>
             )}
@@ -415,15 +421,18 @@ function WhatsAppSingleSend() {
     setPreviews(p => ({ ...p, [type]: null }))
   }
 
+  const singleDesc = lead?.business_description || lead?.business_details || '';
+
   const generateSingleMsg = async (type) => {
     const t = MSG_TYPES.find(x => x.id === type)
     setGenerating(p => ({ ...p, [type]: true }))
     try {
       const { data } = await waApi.preview({
         message: '',
-        lead_name: lead?.name || '',
-        lead_company: lead?.company || '',
-        business_details: lead?.business_details || '',
+        lead_id: lead?.id || 0,
+        lead_name: lead?.contact_name || lead?.name || '',
+        lead_company: lead?.company_name || lead?.company || '',
+        business_details: singleDesc,
         personalise: false,
         generate_template: true,
         message_type: type,
@@ -444,9 +453,10 @@ function WhatsAppSingleSend() {
     try {
       const { data } = await waApi.preview({
         message: messages[type],
-        lead_name: lead?.name || '',
-        lead_company: lead?.company || '',
-        business_details: lead?.business_details || '',
+        lead_id: lead?.id || 0,
+        lead_name: lead?.contact_name || lead?.name || '',
+        lead_company: lead?.company_name || lead?.company || '',
+        business_details: singleDesc,
         personalise,
         message_type: type,
       })
@@ -534,18 +544,27 @@ function WhatsAppSingleSend() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="space-y-4">
-          {/* Integrated dynamic target selector explicitly filtering for WhatsApp Numbers */}
           <div className="card p-5">
             <span className="field-label mb-2 block">Recipient Selection</span>
             <LeadSelector 
               selected={lead ? new Map([[lead.id, lead]]) : new Map()} 
               onChange={(map) => {
                 const selectedLead = Array.from(map.values())[0]
-                setLead(selectedLead ? { ...selectedLead, phone: selectedLead.phone } : null)
+                setLead(selectedLead || null)
               }} 
               requirePhone={true} 
             />
           </div>
+
+          {lead && (
+            <div className="card p-4 bg-slate-50 border border-slate-200 text-xs text-slate-500 space-y-1">
+              <span className="font-semibold block text-slate-700 mb-1">Target Summary Parameters:</span>
+              <p><strong className="text-slate-600">Name:</strong> {lead.contact_name || lead.name || '-'}</p>
+              <p><strong className="text-slate-600">WhatsApp:</strong> {lead.phone || '-'}</p>
+              <p><strong className="text-slate-600">Company:</strong> {lead.company_name || lead.company || '-'}</p>
+              <p className="text-slate-600 pt-1"><strong className="text-slate-600">AI Description:</strong> {singleDesc || 'No business info found'}</p>
+            </div>
+          )}
 
           <div className="card p-5 space-y-4">
             <div>
@@ -569,6 +588,16 @@ function WhatsAppSingleSend() {
                   )
                 })}
               </div>
+            </div>
+
+            <div className="flex items-center justify-between py-2.5 border-t border-slate-100">
+              <div>
+                <p className="text-sm font-medium text-slate-800">AI Personalization</p>
+                <p className="text-xs text-slate-400">Apply contextual business notes</p>
+              </div>
+              <button onClick={() => setPersonalise(p => !p)} className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}>
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${personalise ? 'left-5' : 'left-0.5'}`} />
+              </button>
             </div>
 
             <button onClick={executeSend} disabled={sending || !lead} className="btn-primary w-full">
