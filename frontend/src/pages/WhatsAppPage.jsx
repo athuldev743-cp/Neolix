@@ -212,7 +212,7 @@ function CampaignDetail({ id, onBack }) {
 // CAMPAIGN CREATE VIEW (WITH FULL PERSISTENCE HANDLERS)
 // ═══════════════════════════════════════════════════════════
 function CampaignCreate({ onBack, onDone }) {
-  // ── Persistent Initializer Logic ──
+  // ── Persistent Initializer Logic (Safe Text Vectors Only) ──
   const [form, setForm] = useState(() => {
     const saved = localStorage.getItem('neolix_wa_form')
     return saved ? JSON.parse(saved) : { campaign_name: '', personalise: true, daily_limit: 50, send_order: 'as_selected' }
@@ -228,9 +228,8 @@ function CampaignCreate({ onBack, onDone }) {
     return saved ? JSON.parse(saved) : { hook: '', detailed: '', image: '' }
   })
 
-  const [imageUrl, setImageUrl] = useState(() => {
-    return localStorage.getItem('neolix_wa_image_url') || null
-  })
+  // ✅ Fixed Quota Crash: Switched image buffer from localStorage to transient RAM state memory
+  const [imageUrl, setImageUrl] = useState(null)
 
   const [selected, setSelected] = useState(new Map())
   const [allPreviews, setAllPreviews] = useState({ hook: null, detailed: null, image: null })
@@ -256,20 +255,11 @@ function CampaignCreate({ onBack, onDone }) {
     localStorage.setItem('neolix_wa_messages', JSON.stringify(messages))
   }, [messages])
 
-  useEffect(() => {
-    if (imageUrl) {
-      localStorage.setItem('neolix_wa_image_url', imageUrl)
-    } else {
-      localStorage.removeItem('neolix_wa_image_url')
-    }
-  }, [imageUrl])
-
   // Helper routine to clear cache entirely upon successful deployment pipeline execution
   const purgeFormCache = () => {
     localStorage.removeItem('neolix_wa_form')
     localStorage.removeItem('neolix_wa_active_types')
     localStorage.removeItem('neolix_wa_messages')
-    localStorage.removeItem('neolix_wa_image_url')
   }
 
   const toggleType = (id) => {
@@ -374,7 +364,7 @@ function CampaignCreate({ onBack, onDone }) {
         image_base64: imageUrl ? imageUrl.split(',')[1] : ""
       })
       toast.success(`Multi-variant campaign deployment successful!`)
-      purgeFormCache() // Clear storage footprints cleanly upon true completion execution
+      purgeFormCache()
       setTimeout(onDone, 500)
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Payload constraint validation failure')
