@@ -756,12 +756,12 @@ function RepliesTab() {
 
   const loadInbox = async () => {
     setLoading(true)
-    try { const { data } = await repliesApi.inbox(); setInbox(data) }
+    try { const { data } = await repliesApi.inbox(null, 'sms'); setInbox(data) }
     catch { toast.error('Failed to load inbox') } finally { setLoading(false) }
   }
   const loadSent = async () => {
     setLoading(true)
-    try { const { data } = await repliesApi.sent(); setSent(data) }
+    try { const { data } = await repliesApi.sent(null, 'sms'); setSent(data) }
     catch { toast.error('Failed to load sent') } finally { setLoading(false) }
   }
 
