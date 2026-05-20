@@ -540,6 +540,7 @@ function SMSCampaignCreate({ onBack, onDone }) {
 function MainSMSDashboard({ onStartCampaign, onSingleSend, metrics, logs }) {
   const [newNodeId, setNewNodeId] = useState('')
   const [nodes, setNodes] = useState([])
+  const [showInstructions, setShowInstructions] = useState(false) // Toggle instructional drawer
 
   useEffect(() => { fetchNodes() }, [])
 
@@ -554,7 +555,7 @@ function MainSMSDashboard({ onStartCampaign, onSingleSend, metrics, logs }) {
     e.preventDefault()
     if (!newNodeId.trim()) return
     try {
-      await API.post('/sms/register-node', { device_id: newNodeId.trim() })
+      await API.post('/sms/register-node', { device_id: newNodeId.trim().toLowerCase() })
       toast.success('Hardware Node Signature Verification Link established!')
       setNewNodeId('')
       fetchNodes()
@@ -566,34 +567,95 @@ function MainSMSDashboard({ onStartCampaign, onSingleSend, metrics, logs }) {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <div><h2 className="text-xl font-black text-slate-900">Android Mobile Node Pipeline</h2><p className="text-xs text-slate-400">Route AI lead context payloads natively over cellular hardware switches.</p></div>
+        <div>
+          <h2 className="text-xl font-black text-slate-900">Android Mobile Node Pipeline</h2>
+          <p className="text-xs text-slate-400">Route AI lead context payloads natively over cellular hardware switches.</p>
+        </div>
         <div className="flex gap-2">
-          <button type="button" onClick={onSingleSend} className="px-3 py-1.5 border rounded-xl bg-white text-xs font-bold flex items-center gap-1 shadow-2xs hover:bg-slate-50"><Send size={11} className="text-slate-500" /> Single Route</button>
-          <button type="button" onClick={onStartCampaign} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs"><Plus size={12} /> Init Cluster</button>
+          {/* Download Gateway APK Package Link Button */}
+          <a 
+            href="https://neolix-neolix-backend.hf.space/static/app-release.apk" 
+            download="neolix-gateway.apk"
+            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors"
+          >
+            <Smartphone size={13} /> Download Gateway APK
+          </a>
+          <button type="button" onClick={onSingleSend} className="px-3 py-1.5 border rounded-xl bg-white text-xs font-bold flex items-center gap-1 shadow-2xs hover:bg-slate-50">
+            <Send size={11} className="text-slate-500" /> Single Route
+          </button>
+          <button type="button" onClick={onStartCampaign} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs">
+            <Plus size={12} /> Init Cluster
+          </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <div className="space-y-4">
+          {/* Registration Input Box Module */}
           <div className="bg-white border rounded-2xl p-5 shadow-2xs space-y-4">
-            <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1"><ShieldCheck size={14} className="text-emerald-500" /> Authorized Hardware Matrices</h3>
+            <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
+              <ShieldCheck size={14} className="text-emerald-500" /> Authorized Hardware Matrices
+            </h3>
             <form onSubmit={handleRegister} className="flex gap-2">
-              <input required className="flex-1 px-3 py-1.5 border rounded-xl font-mono text-xs uppercase bg-slate-50" placeholder="8516a3de3bfec38b" value={newNodeId} onChange={e => setNewNodeId(e.target.value)} />
+              <input required className="flex-1 px-3 py-1.5 border rounded-xl font-mono text-xs uppercase bg-slate-50 focus:border-slate-900 outline-none" placeholder="e.g. 8516a3de3bfec38b" value={newNodeId} onChange={e => setNewNodeId(e.target.value)} />
               <button type="submit" className="px-3 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800">Link</button>
             </form>
             <div className="space-y-1.5">
               {nodes.map((n, i) => (
-                <div key={i} className="flex justify-between items-center p-2.5 bg-slate-50 border rounded-xl font-mono text-[11px] font-bold text-slate-600"><span>{n.device_id}</span><span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" /></div>
+                <div key={i} className="flex justify-between items-center p-2.5 bg-slate-50 border rounded-xl font-mono text-[11px] font-bold text-slate-600">
+                  <span>{n.device_id}</span>
+                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                </div>
               ))}
               {nodes.length === 0 && <p className="text-center text-slate-400 text-xs py-4">No active gateway links initialized.</p>}
             </div>
+          </div>
+
+          {/* Expandable Setup Instructions Guide Card */}
+          <div className="bg-white border rounded-2xl p-5 shadow-2xs space-y-3">
+            <button 
+              type="button" 
+              onClick={() => setShowInstructions(!showInstructions)} 
+              className="w-full flex items-center justify-between text-xs font-black uppercase tracking-wider text-slate-500 outline-none"
+            >
+              <span className="flex items-center gap-1"><Sparkles size={13} className="text-blue-500" /> Device Setup Guide</span>
+              <span className="text-slate-400">{showInstructions ? 'Hide' : 'Show'}</span>
+            </button>
+            
+            {showInstructions && (
+              <div className="text-xs text-slate-600 space-y-2.5 pt-2 border-t border-dashed transition-all">
+                <div className="space-y-1">
+                  <p className="font-bold text-slate-800">1. Install Package</p>
+                  <p className="text-slate-500">Download and open the APK on your Android device. Tap allow when prompted to approve system permissions.</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-bold text-slate-800">2. Register Token Signature</p>
+                  <p className="text-slate-500">Copy the unique alphanumeric <span className="font-mono bg-slate-100 px-1 rounded text-slate-700">Device Node ID</span> from the app screen, paste it into the box above, and click Link.</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-bold text-slate-800">3. Lock Background Thread (Crucial)</p>
+                  <p className="text-slate-500">Long-press the app icon ──► App Info ──► Battery Usage. Change the setting to <span className="font-bold text-slate-800">No Restrictions / Allow Background Activity</span>.</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-bold text-slate-800">4. Unblock Network Doze Sleep</p>
+                  <p className="text-slate-500">Go to phone Settings ──► Battery ──► More Settings. Turn <span className="font-bold text-slate-800">Sleep Standby Optimization OFF</span> to maintain real-time background queues.</p>
+                </div>
+                <div className="space-y-1">
+                  <p className="font-bold text-slate-800">5. Go Live</p>
+                  <p className="text-slate-500">Flip the application toggle to <span className="text-emerald-600 font-bold">ON</span>. A permanent sync icon will mount onto your status bar drawer.</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <div className="lg:col-span-2"><SMSQueueTable logs={logs} /></div>
       </div>
     </div>
   )
+
+  
 }
+
 
 export default function SMSPage() {
   const [view, setView] = useState('list')
