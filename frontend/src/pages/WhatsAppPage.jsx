@@ -1,13 +1,25 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Send, Loader2, Eye, X, MessageSquare, Sparkles,
-  Image, FileText, Zap, RefreshCw, Plus, ChevronLeft, Check
+  Send, Inbox, RefreshCw, Plus, Loader2, ChevronLeft,
+  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { waApi } from '../services/api'
+import { waApi, repliesApi } from '../services/api'
 import LeadSelector from '../components/LeadSelector'
+import { useUnreadReplies } from '../hooks/useUnreadReplies'
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
 const statusBadge = { running: 'badge-blue', completed: 'badge-green', queued: 'badge-gray', failed: 'badge-red', paused: 'badge-orange' }
+
+function timeAgo(iso) {
+  if (!iso) return '—'
+  const m = Math.floor((Date.now() - new Date(iso)) / 60000)
+  if (m < 1) return 'just now'
+  if (m < 60) return `${m}m ago`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h ago`
+  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+}
 
 function TypeIcon({ id, size = 13 }) {
   if (id === 'hook') return <Zap size={size} />
@@ -209,10 +221,9 @@ function CampaignDetail({ id, onBack }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CAMPAIGN CREATE VIEW (WITH FULL PERSISTENCE HANDLERS)
+// CAMPAIGN CREATE VIEW
 // ═══════════════════════════════════════════════════════════
 function CampaignCreate({ onBack, onDone }) {
-  // ── Persistent Initializer Logic (Safe Text Vectors Only) ──
   const [form, setForm] = useState(() => {
     const saved = localStorage.getItem('neolix_wa_form')
     return saved ? JSON.parse(saved) : { campaign_name: '', personalise: true, daily_limit: 50, send_order: 'as_selected' }
@@ -228,9 +239,7 @@ function CampaignCreate({ onBack, onDone }) {
     return saved ? JSON.parse(saved) : { hook: '', detailed: '', image: '' }
   })
 
-  // ✅ Fixed Quota Crash: Switched image buffer from localStorage to transient RAM state memory
   const [imageUrl, setImageUrl] = useState(null)
-
   const [selected, setSelected] = useState(new Map())
   const [allPreviews, setAllPreviews] = useState({ hook: null, detailed: null, image: null })
   const [focusedType, setFocusedType] = useState('detailed') 
@@ -242,7 +251,6 @@ function CampaignCreate({ onBack, onDone }) {
 
   const leadIds = Array.from(selected.keys())
 
-  // ── Sync Engine to LocalStorage Cache on Mutational Modifications ──
   useEffect(() => {
     localStorage.setItem('neolix_wa_form', JSON.stringify(form))
   }, [form])
@@ -255,7 +263,6 @@ function CampaignCreate({ onBack, onDone }) {
     localStorage.setItem('neolix_wa_messages', JSON.stringify(messages))
   }, [messages])
 
-  // Helper routine to clear cache entirely upon successful deployment pipeline execution
   const purgeFormCache = () => {
     localStorage.removeItem('neolix_wa_form')
     localStorage.removeItem('neolix_wa_active_types')
@@ -506,7 +513,6 @@ function CampaignCreate({ onBack, onDone }) {
 // ═══════════════════════════════════════════════════════════
 // WHATSAPP SINGLE SEND DISPATCH PIPELINE
 // ═══════════════════════════════════════════════════════════
-// (Note: Keep standalone isolated single dispatch field parameters naked)
 function WhatsAppSingleSend() {
   const [lead, setLead] = useState(null)
   const [activeTypes, setActiveTypes] = useState(new Set(['hook']))
@@ -693,14 +699,299 @@ function WhatsAppSingleSend() {
 }
 
 // ═══════════════════════════════════════════════════════════
+// REPLIES VIEW INFRASTRUCTURE (REPLICATED NATIVELY)
+// ═══════════════════════════════════════════════════════════
+function ThreadView({ replyId, onClose }) {
+  const [thread, setThread] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [replyText, setReplyText] = useState('')
+  const [sending, setSending]   = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
+  const bottomRef = useRef()
+
+  const load = async () => {
+    setLoading(true)
+    try { const { data } = await repliesApi.thread(replyId); setThread(data) }
+    catch { toast.error('Failed to load thread') } finally { setLoading(false) }
+  }
+
+  useEffect(() => { load() }, [replyId])
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [thread])
+
+  const send = async () => {
+    if (!replyText.trim()) { toast.error('Write a reply first'); return }
+    setSending(true)
+    try {
+      await repliesApi.respond(replyId, { body: replyText, use_ai: false })
+      toast.success('Reply sent!')
+      setReplyText('')
+      await load()
+    } catch { toast.error('Failed to send') } finally { setSending(false) }
+  }
+
+  const draftAI = async () => {
+    setAiLoading(true)
+    try {
+      const { data } = await repliesApi.respond(replyId, { body: '', use_ai: true })
+      const { data: fresh } = await repliesApi.thread(replyId)
+      setReplyText(fresh.reply?.our_reply || '')
+      setThread(fresh)
+      toast.success('AI draft ready — edit and send')
+    } catch { toast.error('AI failed') } finally { setAiLoading(false) }
+  }
+
+  if (loading) return <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-emerald-500" /></div>
+  if (!thread) return null
+  const { reply, sent_item } = thread
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 flex-shrink-0">
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-slate-900 truncate">{reply.from_name || reply.from_email}</p>
+          <p className="text-xs text-slate-400">{reply.from_email}</p>
+        </div>
+        <span className={reply.status === 'responded' ? 'badge-green' : reply.status === 'unread' ? 'badge-blue' : 'badge-gray'}>
+          {reply.status}
+        </span>
+        <button onClick={onClose} className="btn-icon p-1.5"><X size={15} /></button>
+      </div>
+      <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-100 flex-shrink-0">
+        <p className="text-xs text-slate-400 uppercase font-medium tracking-wide mb-0.5">Subject</p>
+        <p className="text-sm font-semibold text-slate-800">{reply.subject}</p>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-white">
+        {sent_item && (
+          <div className="flex flex-col items-end gap-1">
+            <p className="text-[10px] text-slate-400 uppercase tracking-wide">Your message · {timeAgo(sent_item.sent_at)}</p>
+            <div className="bubble-sent">{sent_item.body}</div>
+          </div>
+        )}
+        <div className="flex flex-col items-start gap-1">
+          <p className="text-[10px] text-slate-400 uppercase tracking-wide">{reply.from_name || 'Their reply'} · {timeAgo(reply.received_at)}</p>
+          <div className="bubble-recv whitespace-pre-wrap">{reply.body_text}</div>
+        </div>
+        {reply.status === 'responded' && reply.our_reply && (
+          <div className="flex flex-col items-end gap-1">
+            <p className="text-[10px] text-slate-400 uppercase tracking-wide">You · {timeAgo(reply.replied_at)}</p>
+            <div className="bubble-sent whitespace-pre-wrap">{reply.our_reply}</div>
+          </div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {reply.status !== 'responded' ? (
+        <div className="flex-shrink-0 border-t border-slate-100 p-4 bg-white space-y-3">
+          <textarea value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Write your reply…" className="textarea h-24 text-sm" />
+          <div className="flex gap-2">
+            <button onClick={send} disabled={sending || !replyText.trim()} className="px-5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1">
+              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              {sending ? 'Sending…' : 'Send'}
+            </button>
+            <button onClick={draftAI} disabled={aiLoading} className="btn-secondary">
+              {aiLoading ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} className="text-emerald-500" />}
+              AI draft
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex-shrink-0 p-4 border-t border-slate-100 bg-emerald-50">
+          <p className="flex items-center gap-2 text-sm text-emerald-700">
+            <CheckCheck size={15} /> Replied {timeAgo(reply.replied_at)}
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function RepliesTab() {
+  const [subTab, setSubTab]   = useState('inbox')
+  const [inbox, setInbox]     = useState([])
+  const [sent, setSent]       = useState([])
+  const [loading, setLoading] = useState(true)
+  const [selectedId, setSelectedId] = useState(null)
+  const [selectedSent, setSelectedSent] = useState(null)
+  const [polling, setPolling] = useState(false)
+  const [search, setSearch]   = useState('')
+
+  const loadInbox = async () => {
+    setLoading(true)
+    try { const { data } = await repliesApi.inbox(); setInbox(data) }
+    catch { toast.error('Failed to load inbox') } finally { setLoading(false) }
+  }
+  const loadSent = async () => {
+    setLoading(true)
+    try { const { data } = await repliesApi.sent(); setSent(data) }
+    catch { toast.error('Failed to load sent') } finally { setLoading(false) }
+  }
+
+  useEffect(() => { subTab === 'inbox' ? loadInbox() : loadSent() }, [subTab])
+
+  const poll = async () => {
+    setPolling(true)
+    try { await repliesApi.poll(); toast.success('Syncing inbox…'); setTimeout(loadInbox, 2000) }
+    catch { toast.error('Poll failed') } finally { setPolling(false) }
+  }
+
+  const filteredInbox = inbox.filter(i =>
+    !search || i.from_email.toLowerCase().includes(search.toLowerCase()) ||
+    i.from_name?.toLowerCase().includes(search.toLowerCase()) ||
+    i.subject?.toLowerCase().includes(search.toLowerCase())
+  )
+  const filteredSent = sent.filter(i =>
+    !search || i.to_email?.toLowerCase().includes(search.toLowerCase()) ||
+    i.to_company?.toLowerCase().includes(search.toLowerCase()) ||
+    i.subject?.toLowerCase().includes(search.toLowerCase())
+  )
+
+  const statusDot = { unread: 'bg-blue-500', read: 'bg-slate-300', responded: 'bg-emerald-400' }
+
+  return (
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 180px)' }}>
+      <div className="flex items-center gap-0 border-b border-slate-200 mb-0 flex-shrink-0">
+        {[{ id: 'inbox', label: 'Inbox' }, { id: 'sent', label: 'Sent' }].map(t => (
+          <button key={t.id} onClick={() => { setSubTab(t.id); setSelectedId(null); setSelectedSent(null) }}
+            className={`px-5 py-3 text-sm font-medium border-b-2 transition-all
+              ${subTab === t.id ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
+            {t.label}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <div className="flex items-center gap-2 px-3">
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5">
+            <Search size={13} className="text-slate-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search…"
+              className="bg-transparent text-sm outline-none placeholder-slate-400 w-36" />
+          </div>
+          {subTab === 'inbox' && (
+            <button onClick={poll} disabled={polling} className="btn-icon" title="Sync inbox">
+              <RefreshCw size={14} className={polling ? 'animate-spin text-emerald-500' : ''} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-1 overflow-hidden border border-slate-200 rounded-xl mt-3">
+        <div className="w-80 flex-shrink-0 border-r border-slate-100 overflow-y-auto bg-white">
+          {loading && <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin text-emerald-500" /></div>}
+
+          {subTab === 'inbox' && !loading && filteredInbox.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+              <Inbox size={28} className="mb-2 text-slate-200" />
+              <p className="text-sm">No replies yet</p>
+              <button onClick={poll} className="text-xs text-emerald-600 mt-2">Sync inbox</button>
+            </div>
+          )}
+          {subTab === 'inbox' && filteredInbox.map(item => (
+            <button key={item.id} onClick={() => setSelectedId(item.id)}
+              className={`w-full text-left px-4 py-3.5 border-b border-slate-100 hover:bg-slate-50 transition-all
+                ${selectedId === item.id ? 'bg-emerald-50 border-l-2 border-l-emerald-500' : ''}`}>
+              <div className="flex items-start gap-2.5">
+                <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${statusDot[item.status] || 'bg-slate-300'}`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between gap-1 mb-0.5">
+                    <p className={`text-sm truncate ${item.status === 'unread' ? 'font-semibold text-slate-900' : 'font-medium text-slate-700'}`}>
+                      {item.from_name || item.from_email}
+                    </p>
+                    <p className="text-[10px] text-slate-400 flex-shrink-0">{timeAgo(item.received_at)}</p>
+                  </div>
+                  <p className="text-xs text-slate-500 truncate">{item.subject}</p>
+                  <p className="text-xs text-slate-400 truncate mt-0.5">{item.preview}</p>
+                </div>
+              </div>
+            </button>
+          ))}
+
+          {subTab === 'sent' && !loading && filteredSent.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+              <Send size={28} className="mb-2 text-slate-200" />
+              <p className="text-sm">No sent messages yet</p>
+            </div>
+          )}
+          {subTab === 'sent' && filteredSent.map(item => (
+            <button key={item.id} onClick={() => setSelectedSent(item)}
+              className={`w-full text-left px-4 py-3.5 border-b border-slate-100 hover:bg-slate-50 transition-all
+                ${selectedSent?.id === item.id ? 'bg-emerald-50 border-l-2 border-l-emerald-500' : ''}`}>
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center text-[10px] font-bold text-emerald-600 flex-shrink-0">
+                  {(item.to_company || item.to_name || item.to_email || '?').slice(0, 2).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between mb-0.5">
+                    <p className="text-sm font-medium text-slate-800 truncate">{item.to_company || item.to_name || item.to_email}</p>
+                    <p className="text-[10px] text-slate-400 flex-shrink-0">{timeAgo(item.sent_at)}</p>
+                  </div>
+                  <p className="text-xs text-slate-500 truncate">{item.subject}</p>
+                </div>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-hidden bg-white">
+          {subTab === 'inbox' && selectedId && <ThreadView replyId={selectedId} onClose={() => setSelectedId(null)} />}
+          {subTab === 'inbox' && !selectedId && (
+            <div className="flex flex-col items-center justify-center h-full text-slate-400">
+              <Reply size={32} className="mb-3 text-slate-200" />
+              <p className="text-sm font-medium text-slate-600">Select a reply to read</p>
+            </div>
+          )}
+          {subTab === 'sent' && selectedSent && (
+            <div className="p-6 fade-up overflow-y-auto h-full">
+              <p className="font-semibold text-slate-900 mb-1">{selectedSent.subject}</p>
+              <p className="text-xs text-slate-400 mb-5">
+                To: <span className="text-emerald-600">{selectedSent.to_email}</span>
+                {selectedSent.to_company ? ` · ${selectedSent.to_company}` : ''}
+                {' · '}{timeAgo(selectedSent.sent_at)}
+              </p>
+              <div className="bg-slate-50 rounded-xl border border-slate-200 p-5">
+                <p className="text-sm text-slate-700 whitespace-pre-line leading-relaxed">{selectedSent.body}</p>
+              </div>
+            </div>
+          )}
+          {subTab === 'sent' && !selectedSent && (
+            <div className="flex flex-col items-center justify-center h-full text-slate-400">
+              <Send size={32} className="mb-3 text-slate-200" />
+              <p className="text-sm font-medium text-slate-600">Select a message to preview</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ═══════════════════════════════════════════════════════════
 // GLOBAL SYSTEM MAIN EXPORT LAYER
 // ═══════════════════════════════════════════════════════════
 export default function WhatsAppPage() {
-  const [view, setView] = useState('list')
+  const [view, setView] = useState('list') // list | create | detail | single | replies
   const [detailId, setDetailId] = useState(null)
+  
+  const { waUnread } = useUnreadReplies();
 
   return (
     <div className="p-1 space-y-4 max-w-7xl mx-auto">
+      <div className="flex items-center gap-4 border-b pb-1">
+        <button onClick={() => setView('list')} className={`px-4 py-2 font-bold text-sm border-b-2 ${view === 'list' || view === 'detail' || view === 'create' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-400'}`}>
+          Campaign Monitor
+        </button>
+        <button onClick={() => setView('single')} className={`px-4 py-2 font-bold text-sm border-b-2 ${view === 'single' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-400'}`}>
+          Single Dispatch
+        </button>
+        
+        <button onClick={() => setView('replies')} className={`px-4 py-2 font-bold text-sm border-b-2 flex items-center gap-2 ${view === 'replies' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-400'}`}>
+          <span>Replies Channel</span>
+          {waUnread > 0 && (
+            <span className="bg-red-500 text-white font-black text-[10px] px-1.5 py-0.5 rounded-full animate-bounce">
+              {waUnread} New
+            </span>
+          )}
+        </button>
+      </div>
+
       {view === 'list' && (
         <CampaignList onCreate={() => setView('create')}
           onSingle={() => setView('single')}
@@ -715,6 +1006,7 @@ export default function WhatsAppPage() {
           <WhatsAppSingleSend/>
         </div>
       )}
+      {view === 'replies' && <RepliesTab />}
     </div>
   )
 }

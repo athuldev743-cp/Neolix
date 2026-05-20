@@ -6,7 +6,7 @@ import {
 import toast from 'react-hot-toast'
 import { campaignApi, repliesApi } from '../services/api'
 import LeadSelector from '../components/LeadSelector'
-
+import { useUnreadReplies } from '../hooks/useUnreadReplies'
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const statusBadge = { running:'badge-blue', completed:'badge-green', queued:'badge-gray', failed:'badge-red', paused:'badge-orange' }
 
@@ -629,6 +629,9 @@ export default function EmailPage() {
   const [tab, setTab]       = useState('campaigns')   // campaigns | replies
   const [campView, setCampView] = useState('list')    // list | create | detail
   const [detailId, setDetailId] = useState(null)
+  
+  // Natively intercept active unread counts hook tracker
+  const { emailUnread } = useUnreadReplies();
 
   return (
     <div>
@@ -636,13 +639,18 @@ export default function EmailPage() {
       <div className="flex items-center gap-0 border-b border-slate-200 mb-6 -mt-2">
         <h1 className="text-lg font-bold text-slate-900 pr-6 py-3">Email</h1>
         {[
-          { id:'campaigns', label:'Campaigns' },
-          { id:'replies',   label:'Replies'   },
+          { id: 'campaigns', label: 'Campaigns' },
+          { id: 'replies',   label: 'Replies', badgeCount: emailUnread }, // Injected real count indicator
         ].map(t => (
           <button key={t.id} onClick={() => { setTab(t.id); setCampView('list') }}
-            className={`px-5 py-3 text-sm font-medium border-b-2 transition-all
+            className={`px-5 py-3 text-sm font-medium border-b-2 transition-all flex items-center gap-2
               ${tab===t.id ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-400 hover:text-slate-600'}`}>
             {t.label}
+            {t.badgeCount > 0 && (
+              <span className="bg-red-500 text-white font-black text-[10px] px-1.5 py-0.5 rounded-full animate-pulse">
+                {t.badgeCount}
+              </span>
+            )}
           </button>
         ))}
       </div>
