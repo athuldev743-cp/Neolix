@@ -1,42 +1,43 @@
 // src/hooks/useUnreadReplies.js
 import { useState, useEffect } from 'react';
-import { repliesApi, waApi } from '../services/api';
+import { repliesApi } from '../services/api';
 
 export function useUnreadReplies() {
   const [emailUnread, setEmailUnread] = useState(0);
   const [waUnread, setWaUnread] = useState(0);
+  const [smsUnread, setSmsUnread] = useState(0); // Kept available for your hardware pipeline balance
 
   const checkCounts = async () => {
     try {
-      // 1. Scan email unread arrays
-      const { data: emailData } = await repliesApi.inbox();
-      if (Array.isArray(emailData)) {
-        setEmailUnread(emailData.filter(item => item.status === 'unread').length);
-      }
-    } catch (e) { /* background silencer */ }
+      // 🔄 Query your channel-isolated endpoints concurrently to minimize server strain
+      const [emailRes, waRes, smsRes] = await Promise.all([
+        repliesApi.inbox('unread', 'email'),
+        repliesApi.inbox('unread', 'whatsapp'),
+        repliesApi.inbox('unread', 'sms')
+      ]);
 
-    try {
-      // 2. Scan WhatsApp unread arrays via campaign/queue snapshots
-      const { data: campaigns } = await waApi.campaignList();
-      if (Array.isArray(campaigns)) {
-        let waUnreadAccumulator = 0;
-        // Check running campaigns for unread or failed interactions needing replies view visibility
-        for (const c of campaigns.filter(x => x.status === 'running')) {
-          const { data: detail } = await waApi.campaignDetail(c.id);
-          if (detail?.leads_preview) {
-            waUnreadAccumulator += detail.leads_preview.filter(l => l.status === 'failed').length;
-          }
-        }
-        setWaUnread(waUnreadAccumulator);
+      // Map unread data stream array lengths straight to state counts
+      if (emailRes && Array.isArray(emailRes.data)) {
+        setEmailUnread(emailRes.data.length);
       }
-    } catch (e) { /* background silencer */ }
+      
+      if (waRes && Array.isArray(waRes.data)) {
+        setWaUnread(waRes.data.length); // ⚡ FIXED: This now tracks true live inbound WhatsApp replies!
+      }
+
+      if (smsRes && Array.isArray(smsRes.data)) {
+        setSmsUnread(smsRes.data.length);
+      }
+    } catch (e) {
+      console.error("[Unread Hook Log Warning] Background indicator sync dropped: ", e.message);
+    }
   };
 
   useEffect(() => {
     checkCounts();
-    const interval = setInterval(checkCounts, 10000); // Polls every 10 seconds smoothly
+    const interval = setInterval(checkCounts, 5000); // Polling optimized down to 5s for real-time visibility
     return () => clearInterval(interval);
   }, []);
 
-  return { emailUnread, waUnread, refresh: checkCounts };
+  return { emailUnread, waUnread, smsUnread, refresh: checkCounts };
 }
