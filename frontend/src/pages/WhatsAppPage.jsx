@@ -211,19 +211,24 @@ function CampaignCreate({ onBack, onDone }) {
     if (selected.size === 0 || !form.message_template.trim()) return
     const ids = Array.from(selected.keys())
     const currentLeadId = ids[Math.min(previewIdx, ids.length - 1)]
+    const cachedLead = selected.get(currentLeadId) || {}
     
     setPreviewLoading(true)
     try {
       const { data } = await waApi.preview({
         message: form.message_template,
         lead_id: currentLeadId,
+        lead_name: cachedLead.contact_name || cachedLead.name || '',
+        lead_company: cachedLead.company_name || cachedLead.company || '',
+        // Explicitly ensuring business_details are mapped from the schema context map
+        business_details: cachedLead.business_details || cachedLead.business_description || '',
+        lead_business_details: cachedLead.business_details || cachedLead.business_description || '',
         personalise: form.personalise,
         message_type: 'detailed'
       })
-      // Safeguard text extraction to prevent [object Object] errors causing crash #31
       setPreview(data && typeof data.message === 'string' ? data : { message: String(data?.message || '') })
     } catch {
-      /* fail silently on keystroke syntax */
+      /* fail silently on incomplete template parameters */
     } finally {
       setPreviewLoading(false)
     }
@@ -253,14 +258,14 @@ function CampaignCreate({ onBack, onDone }) {
 
   const submit = async () => {
     if (!form.campaign_name.trim() || !form.message_template.trim()) { toast.error('Fill campaign name and message'); return }
-    if (selected.size === 0) { toast.error('Select at least one lead with a valid WhatsApp number'); return }
+    if (selected.size === 0) { toast.error('Select at least one lead'); return }
     setSubmitting(true)
     try {
       await waApi.campaignCreate({ ...form, daily_limit: Math.min(form.daily_limit, 50), lead_ids: leadIds })
       toast.success(`WhatsApp campaign started for ${selected.size} leads`)
       setTimeout(onDone, 700)
     } catch (e) {
-      toast.error(e.response?.data?.detail || 'Campaign failed')
+      toast.error(e.response?.data?.detail || 'Campaign creation failed')
     } finally {
       setSubmitting(false)
     }
@@ -306,7 +311,7 @@ function CampaignCreate({ onBack, onDone }) {
                 onChange={e => { setForm(p => ({ ...p, message_template: e.target.value })); setPreview(null) }}
                 placeholder={"Hi {lead_name},\n\nI came across {lead_company}...\n\n{sender_name}"} />
               <p className="text-[10px] text-slate-400 mt-1">
-                Supports shortcode tags: <code>{'{lead_name}'}</code>, <code>{'{lead_company}'}</code>, <code>{'{sender_name}'}</code>
+                Supports: <code>{'{lead_name}'}</code>, <code>{'{lead_company}'}</code>, <code>{'{sender_name}'}</code>
               </p>
             </div>
 
@@ -322,14 +327,13 @@ function CampaignCreate({ onBack, onDone }) {
             </div>
           </div>
 
-          {/* Core Migration Fix: Replacing custom lead picker with standard global component requiring WhatsApp Numbers */}
           <div className="card p-5">
             <label className="field-label mb-3 block">Add WhatsApp Contacts</label>
             <LeadSelector selected={selected} onChange={setSelected} requirePhone={true} />
           </div>
         </div>
 
-        {/* Live Preview Side Panel */}
+        {/* Live Preview Panel Container */}
         <div>
           <div className="card p-5 sticky top-6">
             <div className="flex items-center justify-between mb-4">
@@ -347,14 +351,22 @@ function CampaignCreate({ onBack, onDone }) {
             {previewLoading && <div className="py-12 flex justify-center"><Loader2 size={18} className="animate-spin text-emerald-500" /></div>}
             
             {!previewLoading && preview && selected.size > 0 && (
-              <div className="rounded-xl p-4" style={{ backgroundColor: '#e5ddd5' }}>
-                <div className="flex justify-end">
-                  <div className="bg-[#dcf8c6] rounded-2xl rounded-tr-sm px-4 py-3 shadow-sm max-w-[85%]">
-                    <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{preview.message}</p>
-                    <p className="text-[10px] text-slate-500 text-right mt-1">
-                      {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} ✓✓
-                    </p>
+              <div className="space-y-3">
+                <div className="rounded-xl p-4" style={{ backgroundColor: '#e5ddd5' }}>
+                  <div className="flex justify-end">
+                    <div className="bg-[#dcf8c6] rounded-2xl rounded-tr-sm px-4 py-3 shadow-sm max-w-[85%]">
+                      <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{preview.message}</p>
+                      <p className="text-[10px] text-slate-500 text-right mt-1">
+                        {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} ✓✓
+                      </p>
+                    </div>
                   </div>
+                </div>
+                {/* Visual debug section to confirm business context is parsed successfully */}
+                <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs text-slate-500">
+                  <span className="font-semibold block text-slate-700 mb-1">Active Prompting Metadata:</span>
+                  <p className="truncate"><strong className="text-slate-600">Company:</strong> {selected.get(leadIds[Math.min(previewIdx, leadIds.length - 1)])?.company_name || 'None'}</p>
+                  <p className="text-slate-600 mt-1"><strong className="text-slate-600">AI Context Profile:</strong> {selected.get(leadIds[Math.min(previewIdx, leadIds.length - 1)])?.business_details || 'No business description provided for this record'}</p>
                 </div>
               </div>
             )}
@@ -365,10 +377,9 @@ function CampaignCreate({ onBack, onDone }) {
       <div className="mt-6 pt-5 border-t border-slate-200 flex items-center gap-3">
         <button onClick={submit} disabled={submitting} className="btn-primary px-8">
           {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-          {submitting ? 'Creating...' : `Deploy to ${selected.size} WhatsApp leads`}
+          {submitting ? 'Creating...' : `Send to ${selected.size} leads`}
         </button>
         <button onClick={onBack} className="btn-ghost">Cancel</button>
-        {selected.size > 0 && <p className="text-xs text-slate-400 ml-auto">~{Math.ceil(selected.size / Math.max(form.daily_limit, 1))} day(s) scheduled</p>}
       </div>
     </div>
   )
