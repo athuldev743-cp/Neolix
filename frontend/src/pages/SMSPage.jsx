@@ -701,11 +701,11 @@ function ThreadView({ replyId, onClose }) {
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-white">
         {sent_item && (
-          <div className="flex flex-col items-end gap-1">
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide">Your SMS · {timeAgo(sent_item.sent_at)}</p>
-            <div className="bubble-sent">{sent_item.body}</div>
-          </div>
-        )}
+  <div className="flex flex-col items-end gap-1">
+    <p className="text-[10px] text-slate-400 uppercase tracking-wide">Your Outbox SMS · {timeAgo(sent_item.sent_at)}</p>
+    <div className="bubble-sent">{sent_item.body}</div>
+  </div>
+)}
         <div className="flex flex-col items-start gap-1">
           <p className="text-[10px] text-slate-400 uppercase tracking-wide">{reply.from_name || 'Their reply'} · {timeAgo(reply.received_at)}</p>
           <div className="bubble-recv whitespace-pre-wrap">{reply.body_text}</div>

@@ -61,13 +61,12 @@ export const campaignApi = {
 
 // ── Replies ───────────────────────────────────────────────────────────────────
 export const repliesApi = {
-  inbox:   (status)    => api.get('/replies/inbox',  { params: status ? { status } : {} }),
-  sent:    (cid)       => api.get('/replies/sent',   { params: cid ? { campaign_id: cid } : {} }),
-  thread:  (id)        => api.get(`/replies/${id}`),
-  respond: (id, data)  => api.post(`/replies/${id}/respond`, data),
-  poll:    ()          => api.post('/replies/poll'),
+  inbox:  (status, channel) => api.get('/replies/inbox',  { params: { ...(status ? { status } : {}), ...(channel ? { channel } : {}) } }),
+  sent:   (cid, channel)    => api.get('/replies/sent',   { params: { ...(cid ? { campaign_id: cid } : {}), ...(channel ? { channel } : {}) } }),
+  thread:  (id)             => api.get(`/replies/${id}`),
+  respond: (id, data)       => api.post(`/replies/${id}/respond`, data),
+  poll:    ()               => api.post('/replies/poll'),
 }
-
 // ── WhatsApp ──────────────────────────────────────────────────────────────────
 export const waApi = {
   status:         ()      => api.get('/whatsapp/status'),
