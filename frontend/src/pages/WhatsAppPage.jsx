@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Send, Loader2, Eye, X, MessageSquare, Sparkles,
-  Image, FileText, Zap, RefreshCw, Plus, ChevronLeft
+  Image, FileText, Zap, RefreshCw, Plus, ChevronLeft, QrCode, CheckCircle2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi } from '../services/api'
-// Shared unified lead selector component
+// Universal Channel-Aware Lead Selector 
 import LeadSelector from '../components/LeadSelector'
 
 const statusBadge = { running: 'badge-blue', completed: 'badge-green', queued: 'badge-gray', failed: 'badge-red', paused: 'badge-orange' }
@@ -21,6 +21,67 @@ const MSG_TYPES = [
   { id: 'detailed', label: 'Detailed', sub: '80-120 word outreach', placeholder: `Hi {lead_name},\n\nI came across {lead_company} and wanted to reach out personally.\n\n[Your value proposition here]\n\nWould love a quick 10-min call this week.\n\nWarm regards,\n{sender_name}`, hint: 'detailed professional cold outreach 80-120 words', rows: 9 },
   { id: 'image', label: 'Image', sub: 'Image + caption', placeholder: `Hi {lead_name} - sharing our catalogue for {lead_company}.\nHappy to discuss! - {sender_name}`, hint: 'short 1-2 line caption for image attachment', rows: 3 },
 ]
+
+// ═══════════════════════════════════════════════════════════
+// BAILEYS CONNECTION MANAGER (QR SCREEN FIX)
+// ═══════════════════════════════════════════════════════════
+function BaileysConnectionStatus() {
+  const [status, setStatus] = useState({ connected: false, qr: null, loading: true })
+
+  const checkStatus = async () => {
+    try {
+      const { data } = await waApi.status()
+      setStatus({
+        connected: !!data?.connected,
+        qr: data?.qr || null,
+        loading: false
+      })
+    } catch {
+      setStatus(p => ({ ...p, loading: false }))
+    }
+  }
+
+  useEffect(() => {
+    checkStatus()
+    const iv = setInterval(checkStatus, 7000)
+    return () => clearInterval(iv)
+  }, [])
+
+  if (status.loading) return <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2"><Loader2 size={13} className="animate-spin" /> Fetching Baileys Node state...</div>
+
+  if (status.connected) return (
+    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800">
+      <CheckCircle2 size={18} className="text-emerald-600 flex-shrink-0" />
+      <div className="text-xs">
+        <p className="font-bold">Baileys API Bridge Connected</p>
+        <p className="opacity-80">Device linked successfully onto omniv2.onrender.com</p>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="p-5 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center gap-5">
+      <div className="flex-1 space-y-1.5 text-center md:text-left">
+        <h3 className="text-xs font-black uppercase text-amber-800 tracking-wider flex items-center justify-center md:justify-start gap-1">
+          <QrCode size={14} /> WhatsApp Link Required
+        </h3>
+        <p className="text-xs text-amber-700 leading-relaxed">
+          Open WhatsApp on your phone ──► Linked Devices ──► Scan the QR matrix code to connect your orchestration instance.
+        </p>
+      </div>
+      <div className="bg-white p-3 rounded-xl border border-amber-200 shadow-sm flex items-center justify-center flex-shrink-0 w-40 h-40">
+        {status.qr ? (
+          <img src={`data:image/png;base64,${status.qr}`} alt="Baileys QR Code Matrix" className="w-full h-full object-contain" />
+        ) : (
+          <div className="text-center space-y-1 text-slate-400">
+            <Loader2 size={16} className="animate-spin mx-auto text-slate-600" />
+            <p className="text-[10px]">Generating unique connection token...</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 // ═══════════════════════════════════════════════════════════
 // CAMPAIGN LIST
@@ -44,8 +105,10 @@ function CampaignList({ onCreate, onSingle, onDetail }) {
   useEffect(() => { load() }, [])
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-5">
+    <div className="space-y-5">
+      <BaileysConnectionStatus />
+
+      <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">WhatsApp Campaigns</h2>
           <p className="text-sm text-slate-400 mt-0.5">AI-personalised outreach via WhatsApp</p>
@@ -213,8 +276,8 @@ function CampaignCreate({ onBack, onDone }) {
     const currentLeadId = ids[Math.min(previewIdx, ids.length - 1)]
     const cachedLead = selected.get(currentLeadId) || {}
 
-    // Checking database field options sequentially to lock business context string safely
-    const bDetails = cachedLead.business_description || cachedLead.business_details || cachedLead.notes || '';
+    // Pull database business descriptions safely out of either structured column choice
+    const bDetails = cachedLead.business_description || cachedLead.business_details || '';
     
     setPreviewLoading(true)
     try {
@@ -230,7 +293,7 @@ function CampaignCreate({ onBack, onDone }) {
       })
       setPreview(data && typeof data.message === 'string' ? data : { message: String(data?.message || '') })
     } catch {
-      /* fail silently on keystroke parameters modification */
+      /* fail silently on incomplete shortcodes values */
     } finally {
       setPreviewLoading(false)
     }
@@ -260,7 +323,7 @@ function CampaignCreate({ onBack, onDone }) {
 
   const submit = async () => {
     if (!form.campaign_name.trim() || !form.message_template.trim()) { toast.error('Fill campaign name and message'); return }
-    if (selected.size === 0) { toast.error('Select at least one lead'); return }
+    if (selected.size === 0) { toast.error('Select at least one lead with a valid WhatsApp number'); return }
     setSubmitting(true)
     try {
       await waApi.campaignCreate({ ...form, daily_limit: Math.min(form.daily_limit, 50), lead_ids: leadIds })
@@ -333,6 +396,7 @@ function CampaignCreate({ onBack, onDone }) {
 
           <div className="card p-5">
             <label className="field-label mb-3 block">Add WhatsApp Contacts</label>
+            {/* Safe cross-channel prop configuration */}
             <LeadSelector selected={selected} onChange={setSelected} requirePhone={true} />
           </div>
         </div>
@@ -369,10 +433,8 @@ function CampaignCreate({ onBack, onDone }) {
                 
                 <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs text-slate-500">
                   <span className="font-semibold block text-slate-700 mb-1">Active Prompting Metadata:</span>
-                  <p className="truncate"><strong className="text-slate-600">Name:</strong> {activeLead?.contact_name || activeLead?.name || '-'}</p>
-                  <p className="truncate"><strong className="text-slate-600">WhatsApp:</strong> {activeLead?.phone || '-'}</p>
                   <p className="truncate"><strong className="text-slate-600">Company:</strong> {activeLead?.company_name || activeLead?.company || '-'}</p>
-                  <p className="text-slate-600 mt-1"><strong className="text-slate-600">AI Context Profile:</strong> {activeLead?.business_description || activeLead?.business_details || 'No business details found'}</p>
+                  <p className="text-slate-600 mt-1"><strong className="text-slate-600">AI Context Profile:</strong> {activeLead?.business_description || activeLead?.business_details || 'No active details found'}</p>
                 </div>
               </div>
             )}
@@ -392,10 +454,11 @@ function CampaignCreate({ onBack, onDone }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// WHATSAPP SINGLE SEND VIEW
+// WHATSAPP SINGLE SEND VIEW (MULTI-VARIANT AI PERSONALIZATION)
 // ═══════════════════════════════════════════════════════════
 function WhatsAppSingleSend() {
   const [lead, setLead] = useState(null)
+  // Support independent selection arrays for Hook, Detailed, and Image variants combo selections
   const [activeTypes, setActiveTypes] = useState(new Set(['hook']))
   const [messages, setMessages] = useState({ hook: '', detailed: '', image: '' })
   const [previews, setPreviews] = useState({ hook: null, detailed: null, image: null })
@@ -439,9 +502,9 @@ function WhatsAppSingleSend() {
         context_hint: t.hint,
       })
       setMsg(type, data.message || '')
-      toast.success(`${t.label} generated`)
+      toast.success(`${t.label} compilation finished`)
     } catch {
-      toast.error('Generation failed')
+      toast.error('AI generation failed')
     } finally {
       setGenerating(p => ({ ...p, [type]: false }))
     }
@@ -462,14 +525,14 @@ function WhatsAppSingleSend() {
       })
       setPreviews(p => ({ ...p, [type]: data }))
     } catch {
-      toast.error('Preview failed')
+      toast.error('Preview processing failed')
     } finally {
       setPreviewing(p => ({ ...p, [type]: false }))
     }
   }
 
   const executeSend = async () => {
-    if (!lead?.phone) { toast.error('Select a recipient first'); return }
+    if (!lead?.phone) { toast.error('Select a recipient target first'); return }
     const types = Array.from(activeTypes)
     
     setSending(true)
@@ -503,7 +566,7 @@ function WhatsAppSingleSend() {
 
     setSending(false)
     if (sent.size > 0) {
-      toast.success('Dispatched successfully')
+      toast.success('Payloards dispatched successfully')
       setSentTypes(sent)
       setTimeout(() => {
         setLead(null)
@@ -538,14 +601,14 @@ function WhatsAppSingleSend() {
         </div>
         <div>
           <h1 className="text-lg font-bold text-slate-900">Direct WhatsApp Dispatch</h1>
-          <p className="text-xs text-slate-400">Target a direct profile via contextual variants</p>
+          <p className="text-xs text-slate-400">Target a direct profile via contextual variants combo metrics</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="space-y-4">
           <div className="card p-5">
-            <span className="field-label mb-2 block">Recipient Selection</span>
+            <span className="field-label mb-2 block">Recipient Selection Matrix</span>
             <LeadSelector 
               selected={lead ? new Map([[lead.id, lead]]) : new Map()} 
               onChange={(map) => {
@@ -558,11 +621,9 @@ function WhatsAppSingleSend() {
 
           {lead && (
             <div className="card p-4 bg-slate-50 border border-slate-200 text-xs text-slate-500 space-y-1">
-              <span className="font-semibold block text-slate-700 mb-1">Target Summary Parameters:</span>
-              <p><strong className="text-slate-600">Name:</strong> {lead.contact_name || lead.name || '-'}</p>
-              <p><strong className="text-slate-600">WhatsApp:</strong> {lead.phone || '-'}</p>
+              <span className="font-semibold block text-slate-700 mb-1">Target Context Metadata:</span>
               <p><strong className="text-slate-600">Company:</strong> {lead.company_name || lead.company || '-'}</p>
-              <p className="text-slate-600 pt-1"><strong className="text-slate-600">AI Description:</strong> {singleDesc || 'No business info found'}</p>
+              <p className="text-slate-600 pt-1 leading-relaxed"><strong className="text-slate-600">AI Description Profile:</strong> {singleDesc || 'No details provided'}</p>
             </div>
           )}
 
@@ -593,7 +654,7 @@ function WhatsAppSingleSend() {
             <div className="flex items-center justify-between py-2.5 border-t border-slate-100">
               <div>
                 <p className="text-sm font-medium text-slate-800">AI Personalization</p>
-                <p className="text-xs text-slate-400">Apply contextual business notes</p>
+                <p className="text-xs text-slate-400">Apply context descriptions</p>
               </div>
               <button onClick={() => setPersonalise(p => !p)} className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}>
                 <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${personalise ? 'left-5' : 'left-0.5'}`} />
@@ -658,7 +719,7 @@ function WhatsAppSingleSend() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// MAIN ENTREE POINT
+// MAIN ROOT WHATSAPP ENTRY LAYER
 // ═══════════════════════════════════════════════════════════
 export default function WhatsAppPage() {
   const [view, setView] = useState('list')
