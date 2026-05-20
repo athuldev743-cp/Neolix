@@ -56,7 +56,7 @@ function BaileysConnectionStatus() {
 
   if (status.connected) return (
     <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800">
-      <div className="w-2 h-2 rounded-full bg-emerald-500 anonymity-ping animate-ping flex-shrink-0" />
+      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0" />
       <div className="text-xs font-bold">Baileys API Service Connected Natively</div>
     </div>
   )
@@ -209,24 +209,68 @@ function CampaignDetail({ id, onBack }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CAMPAIGN CREATE VIEW
+// CAMPAIGN CREATE VIEW (WITH FULL PERSISTENCE HANDLERS)
 // ═══════════════════════════════════════════════════════════
 function CampaignCreate({ onBack, onDone }) {
-  const [form, setForm] = useState({ campaign_name: '', personalise: true, daily_limit: 50, send_order: 'as_selected' })
+  // ── Persistent Initializer Logic ──
+  const [form, setForm] = useState(() => {
+    const saved = localStorage.getItem('neolix_wa_form')
+    return saved ? JSON.parse(saved) : { campaign_name: '', personalise: true, daily_limit: 50, send_order: 'as_selected' }
+  })
+
+  const [activeTypes, setActiveTypes] = useState(() => {
+    const saved = localStorage.getItem('neolix_wa_active_types')
+    return saved ? new Set(JSON.parse(saved)) : new Set(['detailed'])
+  })
+
+  const [messages, setMessages] = useState(() => {
+    const saved = localStorage.getItem('neolix_wa_messages')
+    return saved ? JSON.parse(saved) : { hook: '', detailed: '', image: '' }
+  })
+
+  const [imageUrl, setImageUrl] = useState(() => {
+    return localStorage.getItem('neolix_wa_image_url') || null
+  })
+
   const [selected, setSelected] = useState(new Map())
-  const [activeTypes, setActiveTypes] = useState(new Set(['detailed']))
-  const [messages, setMessages] = useState({ hook: '', detailed: '', image: '' })
   const [allPreviews, setAllPreviews] = useState({ hook: null, detailed: null, image: null })
-  
   const [focusedType, setFocusedType] = useState('detailed') 
   const [previewIdx, setPreviewIdx] = useState(0)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [imageUrl, setImageUrl] = useState(null)
   const timerRef = useRef()
 
   const leadIds = Array.from(selected.keys())
+
+  // ── Sync Engine to LocalStorage Cache on Mutational Modifications ──
+  useEffect(() => {
+    localStorage.setItem('neolix_wa_form', JSON.stringify(form))
+  }, [form])
+
+  useEffect(() => {
+    localStorage.setItem('neolix_wa_active_types', JSON.stringify(Array.from(activeTypes)))
+  }, [activeTypes])
+
+  useEffect(() => {
+    localStorage.setItem('neolix_wa_messages', JSON.stringify(messages))
+  }, [messages])
+
+  useEffect(() => {
+    if (imageUrl) {
+      localStorage.setItem('neolix_wa_image_url', imageUrl)
+    } else {
+      localStorage.removeItem('neolix_wa_image_url')
+    }
+  }, [imageUrl])
+
+  // Helper routine to clear cache entirely upon successful deployment pipeline execution
+  const purgeFormCache = () => {
+    localStorage.removeItem('neolix_wa_form')
+    localStorage.removeItem('neolix_wa_active_types')
+    localStorage.removeItem('neolix_wa_messages')
+    localStorage.removeItem('neolix_wa_image_url')
+  }
 
   const toggleType = (id) => {
     setActiveTypes(prev => {
@@ -330,6 +374,7 @@ function CampaignCreate({ onBack, onDone }) {
         image_base64: imageUrl ? imageUrl.split(',')[1] : ""
       })
       toast.success(`Multi-variant campaign deployment successful!`)
+      purgeFormCache() // Clear storage footprints cleanly upon true completion execution
       setTimeout(onDone, 500)
     } catch (err) {
       toast.error(err.response?.data?.detail || 'Payload constraint validation failure')
@@ -471,6 +516,7 @@ function CampaignCreate({ onBack, onDone }) {
 // ═══════════════════════════════════════════════════════════
 // WHATSAPP SINGLE SEND DISPATCH PIPELINE
 // ═══════════════════════════════════════════════════════════
+// (Note: Keep standalone isolated single dispatch field parameters naked)
 function WhatsAppSingleSend() {
   const [lead, setLead] = useState(null)
   const [activeTypes, setActiveTypes] = useState(new Set(['hook']))
