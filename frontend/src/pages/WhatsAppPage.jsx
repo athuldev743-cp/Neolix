@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Send, Loader2, Eye, X, MessageSquare, Sparkles,
-  Image, FileText, Zap, RefreshCw, Plus, ChevronLeft, QrCode, CheckCircle2
+  Image, FileText, Zap, RefreshCw, Plus, ChevronLeft, Check
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi } from '../services/api'
-// Universal Channel-Aware Lead Selector 
 import LeadSelector from '../components/LeadSelector'
 
 const statusBadge = { running: 'badge-blue', completed: 'badge-green', queued: 'badge-gray', failed: 'badge-red', paused: 'badge-orange' }
@@ -23,10 +22,7 @@ const MSG_TYPES = [
 ]
 
 // ═══════════════════════════════════════════════════════════
-// BAILEYS CONNECTION MANAGER (QR BASE64 SANITIZATION FIX)
-// ═══════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════
-// BAILEYS CONNECTION MANAGER (FAST SYNC DEBOUNCER FIX)
+// BAILEYS LINK AUTH MANAGER
 // ═══════════════════════════════════════════════════════════
 function BaileysConnectionStatus() {
   const [status, setStatus] = useState({ connected: false, qr: null, loading: true })
@@ -35,25 +31,14 @@ function BaileysConnectionStatus() {
   const checkStatus = async () => {
     try {
       const { data } = await waApi.status()
-      
-      // If the backend has logged in, stop the cycle instantly
       if (data?.connected) {
         setStatus({ connected: true, qr: null, loading: false })
         return
       }
-
-      // Fetch a fresh token stream lease
-      const qrRes = await fetch('https://omniv2.onrender.com/qr').then(r => r.json())
-      
-      if (qrRes.status === 'pending' && qrRes.qr) {
-        // Debouncer check: Only update state if a completely new code is issued
-        if (qrRes.qr !== lastQrRef.current) {
-          lastQrRef.current = qrRes.qr
-          setStatus({ connected: false, qr: qrRes.qr, loading: false })
-        }
-      } else if (qrRes.status === 'connected') {
-        setStatus({ connected: true, qr: null, loading: false })
-      } else {
+      if (data?.qr && data.qr !== lastQrRef.current) {
+        lastQrRef.current = data.qr
+        setStatus({ connected: false, qr: data.qr, loading: false })
+      } else if (!data?.qr) {
         setStatus(p => ({ ...p, loading: false }))
       }
     } catch {
@@ -63,44 +48,30 @@ function BaileysConnectionStatus() {
 
   useEffect(() => {
     checkStatus()
-    // Drop execution window to 2.5s to catch immediate transitions reactively
-    const iv = setInterval(checkStatus, 2500)
+    const iv = setInterval(checkStatus, 2500) // Fast 2.5s poll loops to stop rotation drops
     return () => clearInterval(iv)
   }, [])
 
-  if (status.loading) return <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2"><Loader2 size={13} className="animate-spin text-slate-800" /> Connecting to network routing nodes...</div>
+  if (status.loading) return <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2"><Loader2 size={13} className="animate-spin text-slate-800" /> Fetching pipeline anchor authorization state...</div>
 
   if (status.connected) return (
-    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800 animate-fade-in">
-      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0" />
-      <div className="text-xs font-bold">Baileys Pipeline Link Active & Authenticated</div>
+    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800">
+      <div className="w-2 h-2 rounded-full bg-emerald-500 anonymity-ping animate-ping flex-shrink-0" />
+      <div className="text-xs font-bold">Baileys API Service Connected Natively</div>
     </div>
   )
 
   return (
-    <div className="p-5 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-5 animate-fade-in">
-      <div className="space-y-1.5 text-center md:text-left max-w-md">
-        <h3 className="text-xs font-black uppercase text-amber-800 tracking-wider flex items-center justify-center md:justify-start gap-1.5">
-          <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-          WhatsApp Authenticator Active
-        </h3>
-        <p className="text-xs text-amber-700 leading-relaxed">
-          QR codes change every 20 seconds due to secure protocol standards. Scan immediately upon refresh to map the socket session context.
-        </p>
+    <div className="p-5 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-5">
+      <div className="space-y-1 text-center md:text-left">
+        <h4 className="text-xs font-black uppercase text-amber-800 tracking-wider">WhatsApp Session Authentication Required</h4>
+        <p className="text-xs text-amber-700 max-w-md">Tokens refresh every 20 seconds. Open WhatsApp ──► Linked Devices ──► Scan immediately upon rotation changes.</p>
       </div>
-      
-      <div className="bg-white p-3 rounded-2xl border border-amber-200/70 shadow-sm flex items-center justify-center flex-shrink-0 w-44 h-44">
+      <div className="bg-white p-3 rounded-2xl border flex items-center justify-center flex-shrink-0 w-36 h-36">
         {status.qr ? (
-          <img 
-            src={`data:image/png;base64,${status.qr}`} 
-            alt="Baileys QR Connection Stream" 
-            className="w-full h-full object-contain select-none"
-          />
+          <img src={`data:image/png;base64,${status.qr.replace(/^data:image\/[a-z]+;base64,/, '')}`} alt="QR Stream" className="w-full h-full object-contain" />
         ) : (
-          <div className="text-center space-y-2 text-slate-400 p-2">
-            <Loader2 size={16} className="animate-spin mx-auto text-amber-600" />
-            <p className="text-[10px] leading-tight font-medium">Awaiting fresh token lease...</p>
-          </div>
+          <div className="text-center space-y-1 text-slate-400 text-[10px]"><Loader2 size={14} className="animate-spin mx-auto text-amber-600" /> Generating lease...</div>
         )}
       </div>
     </div>
@@ -108,7 +79,7 @@ function BaileysConnectionStatus() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CAMPAIGN LIST
+// CAMPAIGN LIST WORKSPACE VIEW
 // ═══════════════════════════════════════════════════════════
 function CampaignList({ onCreate, onSingle, onDetail }) {
   const [camps, setCamps] = useState([])
@@ -120,7 +91,7 @@ function CampaignList({ onCreate, onSingle, onDetail }) {
       const { data } = await waApi.campaignList()
       setCamps(data || [])
     } catch {
-      toast.error('Failed to load WhatsApp campaigns')
+      toast.error('Failed to load campaigns')
     } finally {
       setLoading(false)
     }
@@ -131,27 +102,24 @@ function CampaignList({ onCreate, onSingle, onDetail }) {
   return (
     <div className="space-y-5">
       <BaileysConnectionStatus />
-
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">WhatsApp Campaigns</h2>
-          <p className="text-sm text-slate-400 mt-0.5">AI-personalised outreach via WhatsApp</p>
+          <h2 className="text-xl font-bold text-slate-900">WhatsApp Engine Outreach</h2>
+          <p className="text-sm text-slate-400 mt-0.5">Multi-variant cluster orchestration layers</p>
         </div>
         <div className="flex gap-2">
           <button onClick={load} className="btn-icon"><RefreshCw size={16} /></button>
-          <button onClick={onSingle} className="btn-secondary"><Send size={16} /> Single Send</button>
-          <button onClick={onCreate} className="btn-primary"><Plus size={16} /> Start Campaign</button>
+          <button onClick={onSingle} className="btn-secondary"><Send size={16} /> Single Dispatch</button>
+          <button onClick={onCreate} className="btn-primary"><Plus size={16} /> New Campaign</button>
         </div>
       </div>
 
-      {loading && <div className="flex justify-center py-16"><Loader2 size={22} className="animate-spin text-emerald-500" /></div>}
+      {loading && <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin text-emerald-500" /></div>}
 
       {!loading && camps.length === 0 && (
-        <div className="card flex flex-col items-center justify-center py-20 text-slate-400">
-          <MessageSquare size={36} className="mb-3 text-slate-200" />
-          <p className="font-medium text-slate-600 mb-1">No WhatsApp campaigns yet</p>
-          <p className="text-sm mb-4">Create your first WhatsApp outreach campaign</p>
-          <button onClick={onCreate} className="btn-primary"><Plus size={15} /> Start Campaign</button>
+        <div className="card flex flex-col items-center justify-center py-16 text-slate-400">
+          <MessageSquare size={32} className="mb-2 text-slate-200" />
+          <p className="text-sm">No active orchestration matrices found.</p>
         </div>
       )}
 
@@ -165,15 +133,13 @@ function CampaignList({ onCreate, onSingle, onDetail }) {
                   <p className="font-semibold text-slate-900 truncate">{c.name}</p>
                   <span className={statusBadge[c.status] || 'badge-gray'}>{c.status?.toUpperCase()}</span>
                 </div>
-                <p className="text-xs text-slate-400 mb-2">{c.created_at ? new Date(c.created_at).toLocaleDateString('en-IN') : '-'} · {c.daily_limit}/day</p>
                 <div className="h-1.5 bg-slate-100 rounded-full w-40">
-                  <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                  <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${pct}%` }} />
                 </div>
               </div>
-              <div className="flex gap-5 text-right flex-shrink-0">
-                <div><p className="text-xl font-bold text-slate-900">{c.total_leads?.toLocaleString() || 0}</p><p className="text-xs text-slate-400">leads</p></div>
-                <div><p className="text-xl font-bold text-emerald-600">{c.sent?.toLocaleString() || 0}</p><p className="text-xs text-slate-400">sent</p></div>
-                <div><p className="text-xl font-bold text-red-500">{c.failed?.toLocaleString() || 0}</p><p className="text-xs text-slate-400">failed</p></div>
+              <div className="flex gap-4 text-right text-xs">
+                <div><p className="font-bold text-slate-900">{c.total_leads}</p><p className="text-slate-400">leads</p></div>
+                <div><p className="font-bold text-emerald-600">{c.sent}</p><p className="text-slate-400">sent</p></div>
               </div>
             </div>
           )
@@ -184,7 +150,7 @@ function CampaignList({ onCreate, onSingle, onDetail }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CAMPAIGN DETAIL VIEW
+// CAMPAIGN DETAIL ARCHIVE LOGS
 // ═══════════════════════════════════════════════════════════
 function CampaignDetail({ id, onBack }) {
   const [data, setData] = useState(null)
@@ -195,7 +161,7 @@ function CampaignDetail({ id, onBack }) {
       const { data: d } = await waApi.campaignDetail(id)
       setData(d)
     } catch {
-      toast.error('Failed to load campaign')
+      toast.error('Detail pull error')
     } finally {
       setLoading(false)
     }
@@ -207,87 +173,69 @@ function CampaignDetail({ id, onBack }) {
     return () => clearInterval(iv)
   }, [id])
 
-  if (loading) return <div className="flex justify-center py-16"><Loader2 size={22} className="animate-spin text-emerald-500" /></div>
+  if (loading) return <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin text-emerald-500" /></div>
   if (!data) return null
 
-  const sc = { sent: 'text-emerald-600', failed: 'text-red-500', pending: 'text-slate-400' }
-
   return (
-    <div>
-      <button onClick={onBack} className="btn-ghost -ml-2 mb-4"><ChevronLeft size={16} /> Back</button>
-      <div className="flex items-center gap-3 mb-5">
-        <h2 className="text-xl font-bold text-slate-900 flex-1">{data.name}</h2>
+    <div className="space-y-4">
+      <button onClick={onBack} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back</button>
+      <div className="flex justify-between items-center">
+        <h2 className="text-lg font-bold">{data.name}</h2>
         <span className={statusBadge[data.status] || 'badge-gray'}>{data.status?.toUpperCase()}</span>
-        <button onClick={load} className="btn-icon"><RefreshCw size={15} /></button>
       </div>
 
-      <div className="grid grid-cols-4 gap-3 mb-5">
-        {[
-          { label: 'Total', value: data.total_leads?.toLocaleString() || 0, color: 'text-slate-900' },
-          { label: 'Sent', value: data.sent?.toLocaleString() || 0, color: 'text-emerald-600' },
-          { label: 'Failed', value: data.failed?.toLocaleString() || 0, color: 'text-red-500' },
-          { label: 'Limit', value: `${data.daily_limit || 0}/day`, color: 'text-blue-600' },
-        ].map(s => (
-          <div key={s.label} className="card p-4">
-            <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-            <p className="text-xs text-slate-400 mt-1">{s.label}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="card p-4"><strong>{data.total_leads}</strong><p className="text-xs text-slate-400">Target Count</p></div>
+        <div className="card p-4 text-emerald-600"><strong>{data.sent}</strong><p className="text-xs text-slate-400">Dispatched</p></div>
+        <div className="card p-4 text-red-500"><strong>{data.failed}</strong><p className="text-xs text-slate-400">Faulty Runs</p></div>
       </div>
-
-      {Object.keys(data.fail_reasons || {}).length > 0 && (
-        <div className="bg-red-50 border border-red-100 rounded-xl p-4 mb-5">
-          <p className="text-xs font-bold text-red-600 uppercase tracking-wide mb-2">Failure Logs</p>
-          {Object.entries(data.fail_reasons).map(([r, c]) => (
-            <div key={r} className="flex justify-between py-1.5 border-b border-red-100 last:border-0 text-sm">
-              <span className="text-red-700 truncate mr-4">{r}</span>
-              <span className="text-red-600 font-bold">{c}</span>
-            </div>
-          ))}
-        </div>
-      )}
 
       <div className="card overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-          <p className="text-sm font-semibold text-slate-700">Sends</p>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="table-base w-full">
-            <thead><tr><th>Name</th><th>Company</th><th>WhatsApp</th><th>Status</th><th>Error</th><th>Sent at</th></tr></thead>
-            <tbody>
-              {(data.leads_preview || []).map((l, i) => (
-                <tr key={i}>
-                  <td className="font-medium text-slate-900">{l.name || '-'}</td>
-                  <td>{l.company || '-'}</td>
-                  <td className="text-emerald-600 text-xs">+{l.phone}</td>
-                  <td><span className={`text-xs font-semibold ${sc[l.status] || 'text-slate-400'}`}>{l.status?.toUpperCase()}</span></td>
-                  <td className="text-xs text-red-500 max-w-xs truncate">{l.error || '-'}</td>
-                  <td className="text-xs text-slate-400">{l.sent_at ? new Date(l.sent_at).toLocaleString('en-IN') : '-'}</td>
-                </tr>
-              ))}
-              {!data.leads_preview?.length && <tr><td colSpan={6} className="text-center py-8 text-slate-400 text-sm">No sends yet</td></tr>}
-            </tbody>
-          </table>
-        </div>
+        <table className="table-base w-full text-xs text-left">
+          <thead className="bg-slate-50 text-slate-600"><tr><th className="p-3">Company</th><th className="p-3">WhatsApp</th><th className="p-3">Status</th></tr></thead>
+          <tbody>
+            {data.leads_preview?.map((l, i) => (
+              <tr key={i} className="border-t">
+                <td className="p-3 font-medium">{l.company || l.name || '-'}</td>
+                <td className="p-3 text-slate-500">+{l.phone}</td>
+                <td className="p-3"><span className={l.status === 'sent' ? 'text-emerald-600 font-bold' : 'text-red-500'}>{l.status?.toUpperCase()}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   )
 }
 
 // ═══════════════════════════════════════════════════════════
-// CAMPAIGN CREATE VIEW
+// MULTI-VARIANT CAMPAIGN ENGINE GENERATION WORKFLOW
 // ═══════════════════════════════════════════════════════════
 function CampaignCreate({ onBack, onDone }) {
-  const [form, setForm] = useState({ campaign_name: '', message_template: '', personalise: true, daily_limit: 50, send_order: 'as_selected' })
+  const [form, setForm] = useState({ campaign_name: '', personalise: true, daily_limit: 50, send_order: 'as_selected' })
   const [selected, setSelected] = useState(new Map())
-  const [preview, setPreview] = useState(null)
+  const [activeTypes, setActiveTypes] = useState(new Set(['detailed']))
+  const [messages, setMessages] = useState({ hook: '', detailed: '', image: '' })
+  const [previews, setPreviews] = useState({ hook: null, detailed: null, image: null })
+  
+  const [focusedType, setFocusedType] = useState('detailed') // Tracking active viewport panel focus 
   const [previewIdx, setPreviewIdx] = useState(0)
   const [previewLoading, setPreviewLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [imageUrl, setImageUrl] = useState(null)
   const timerRef = useRef()
 
   const leadIds = Array.from(selected.keys())
+
+  const toggleType = (id) => {
+    setActiveTypes(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) { if (next.size > 1) next.delete(id); if(focusedType === id) setFocusedType(Array.from(next)[0]) } 
+      else { next.add(id); setFocusedType(id); }
+      return next
+    })
+  }
 
   const schedulePreview = () => {
     clearTimeout(timerRef.current)
@@ -295,170 +243,185 @@ function CampaignCreate({ onBack, onDone }) {
   }
 
   const loadPreview = async () => {
-    if (selected.size === 0 || !form.message_template.trim()) return
+    if (selected.size === 0 || !messages[focusedType]?.trim()) return
     const ids = Array.from(selected.keys())
-    const currentLeadId = ids[Math.min(previewIdx, ids.length - 1)]
-    const cachedLead = selected.get(currentLeadId) || {}
-
-    // Pull database business descriptions safely out of either structured column choice
+    const targetId = ids[Math.min(previewIdx, ids.length - 1)]
+    const cachedLead = selected.get(targetId) || {}
     const bDetails = cachedLead.business_description || cachedLead.business_details || '';
-    
+
     setPreviewLoading(true)
     try {
       const { data } = await waApi.preview({
-        message: form.message_template,
-        lead_id: currentLeadId,
+        message: messages[focusedType],
+        lead_id: targetId,
         lead_name: cachedLead.contact_name || cachedLead.name || '',
         lead_company: cachedLead.company_name || cachedLead.company || '',
         business_details: bDetails,
-        lead_business_details: bDetails,
         personalise: form.personalise,
-        message_type: 'detailed'
+        message_type: focusedType
       })
-      setPreview(data && typeof data.message === 'string' ? data : { message: String(data?.message || '') })
+      setPreviews(p => ({ ...p, [focusedType]: data?.message || '' }))
     } catch {
-      /* fail silently on incomplete shortcodes values */
     } finally {
       setPreviewLoading(false)
     }
   }
 
-  useEffect(() => { schedulePreview() }, [form.message_template, form.personalise, selected.size, previewIdx])
+  useEffect(() => { schedulePreview() }, [messages, focusedType, form.personalise, selected.size, previewIdx])
 
-  const generateTemplate = async () => {
+  const triggerAIGenerate = async () => {
     setAiLoading(true)
     try {
+      const target = MSG_TYPES.find(x => x.id === focusedType)
       const { data } = await waApi.preview({
-        message: '',
-        lead_id: 0,
-        personalise: false,
-        generate_template: true,
-        message_type: 'detailed',
-        context_hint: form.campaign_name || 'WhatsApp cold outreach to business leads',
+        message: '', lead_id: 0, personalise: false, generate_template: true,
+        message_type: focusedType, context_hint: target.hint
       })
-      setForm(p => ({ ...p, message_template: data.message || '' }))
-      toast.success('Message template generated')
+      setMessages(p => ({ ...p, [focusedType]: data.message || '' }))
+      toast.success(`${target.label} structure compiled successfully`)
     } catch {
-      toast.error('AI generation failed')
+      toast.error('Generation fault link drop')
     } finally {
       setAiLoading(false)
     }
   }
 
-  const submit = async () => {
-    if (!form.campaign_name.trim() || !form.message_template.trim()) { toast.error('Fill campaign name and message'); return }
-    if (selected.size === 0) { toast.error('Select at least one lead with a valid WhatsApp number'); return }
+  const submitCampaignPipeline = async () => {
+    if (!form.campaign_name.trim()) return toast.error('Enter valid campaign grouping label')
+    if (selected.size === 0) return toast.error('Target set array is empty')
+    
+    // Check configured parameters are explicitly present before shipping array shapes
+    const enabledList = Array.from(activeTypes)
+    for(const type of enabledList) {
+      if(type !== 'image' && !messages[type]?.trim()) return toast.error(`Please compile your ${type.toUpperCase()} layout template content`)
+    }
+
     setSubmitting(true)
     try {
-      await waApi.campaignCreate({ ...form, daily_limit: Math.min(form.daily_limit, 50), lead_ids: leadIds })
-      toast.success(`WhatsApp campaign started for ${selected.size} leads`)
-      setTimeout(onDone, 700)
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Campaign creation failed')
+      await waApi.campaignCreate({
+        campaign_name: form.campaign_name,
+        lead_ids: leadIds,
+        personalise: form.personalise,
+        daily_limit: form.daily_limit,
+        send_order: form.send_order,
+        selected_types: enabledList,
+        hook_template: messages.hook || "",
+        detailed_template: messages.detailed || "",
+        image_template: messages.image || "",
+        image_base64: imageUrl ? imageUrl.split(',')[1] : ""
+      })
+      toast.success(`Cluster pipeline triggered for ${selected.size} targeted recipients`)
+      setTimeout(onDone, 500)
+    } catch {
+      toast.error('Campaign schema processing crash validation rejection')
     } finally {
       setSubmitting(false)
     }
   }
 
   const activeLead = selected.get(leadIds[Math.min(previewIdx, leadIds.length - 1)])
+  const activeConfigMeta = MSG_TYPES.find(x => x.id === focusedType)
 
   return (
-    <div>
-      <button onClick={onBack} className="btn-ghost -ml-2 mb-4"><ChevronLeft size={16} /> Back</button>
-      <h2 className="text-xl font-bold text-slate-900 mb-5">New WhatsApp Campaign</h2>
+    <div className="space-y-4">
+      <button onClick={onBack} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back</button>
+      <h2 className="text-xl font-bold text-slate-900">Configure Multi-Variant Cluster Outreach</h2>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="space-y-4">
           <div className="card p-5 space-y-4">
-            <div>
-              <label className="field-label">Campaign name</label>
-              <input className="input" placeholder="e.g. WhatsApp Outreach - May" value={form.campaign_name}
-                onChange={e => setForm(p => ({ ...p, campaign_name: e.target.value }))} />
-            </div>
-
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="field-label">Daily limit <span className="normal-case font-normal text-slate-400">(max 50)</span></label>
-                <input type="number" min={1} max={50} className="input" value={form.daily_limit}
-                  onChange={e => setForm(p => ({ ...p, daily_limit: Math.min(parseInt(e.target.value) || 50, 50) }))} />
-              </div>
-              <div>
-                <label className="field-label">Send order</label>
-                <select className="input" value={form.send_order} onChange={e => setForm(p => ({ ...p, send_order: e.target.value }))}>
-                  <option value="as_selected">As selected</option>
-                  <option value="random">Random</option>
-                </select>
-              </div>
+              <div><label className="field-label">Identity Label</label><input className="input" placeholder="e.g. Combo Campaign - Tech Leads" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} /></div>
+              <div><label className="field-label">Daily Allocation Cap</label><input type="number" min={1} max={50} className="input" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: Math.min(parseInt(e.target.value) || 50, 50) })} /></div>
             </div>
 
+            {/* Selection Combo Matrices Boxes Trigger */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="field-label mb-0">Message Template</label>
-                <button onClick={generateTemplate} disabled={aiLoading} className="btn-ghost btn-sm text-emerald-600 text-xs">
-                  {aiLoading ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />} AI generate
-                </button>
+              <label className="field-label mb-1.5 block">Select Active Variant Configuration Combo</label>
+              <div className="grid grid-cols-3 gap-2">
+                {MSG_TYPES.map(t => {
+                  const active = activeTypes.has(t.id)
+                  return (
+                    <button key={t.id} onClick={() => toggleType(t.id)} className={`p-2.5 rounded-xl border font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition-all ${active ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                      <TypeIcon id={t.id} size={14} />
+                      {t.label} Variant
+                    </button>
+                  )
+                })}
               </div>
-              <textarea className="textarea h-44 font-mono text-xs" value={form.message_template}
-                onChange={e => { setForm(p => ({ ...p, message_template: e.target.value })); setPreview(null) }}
-                placeholder={"Hi {lead_name},\n\nI came across {lead_company}...\n\n{sender_name}"} />
-              <p className="text-[10px] text-slate-400 mt-1">
-                Supports: <code>{'{lead_name}'}</code>, <code>{'{lead_company}'}</code>, <code>{'{sender_name}'}</code>
-              </p>
             </div>
 
-            <div className="flex items-center justify-between py-2 border-t border-slate-100">
-              <div>
-                <p className="text-sm font-medium text-slate-800">AI personalisation</p>
-                <p className="text-xs text-slate-400">Uses business description from each lead</p>
+            {/* Dynamic Focus Tab Switcher viewport panels */}
+            <div className="border-t pt-3 space-y-3">
+              <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
+                {Array.from(activeTypes).map(typeId => (
+                  <button key={typeId} onClick={() => setFocusedType(typeId)} className={`flex-1 py-1 text-center font-bold text-xs rounded-lg uppercase transition-all ${focusedType === typeId ? 'bg-white shadow-2xs text-slate-900' : 'text-slate-400'}`}>
+                    Edit {typeId}
+                  </button>
+                ))}
               </div>
-              <button onClick={() => setForm(p => ({ ...p, personalise: !p.personalise }))}
-                className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${form.personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}>
-                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.personalise ? 'left-5' : 'left-0.5'}`} />
-              </button>
+
+              {focusedType === 'image' && (
+                <div className="fade-up">
+                  {imageUrl ? (
+                    <div className="relative mb-2 w-full h-24 border rounded-xl overflow-hidden"><img src={imageUrl} className="w-full h-full object-cover" /><button onClick={() => setImageUrl(null)} className="absolute top-1 right-1 p-1 bg-white rounded-full shadow border"><X size={10} /></button></div>
+                  ) : (
+                    <button onClick={() => { const i = document.createElement('input'); i.type='file'; i.accept='image/*'; i.onchange=e=>{ const f=e.target.files[0]; const r=new FileReader(); r.onload=ev=>setImageUrl(ev.target.result); r.readAsDataURL(f) }; i.click() }} className="w-full h-20 border-2 border-dashed rounded-xl text-xs text-slate-400 flex flex-col items-center justify-center gap-1"><Image size={15} /> Upload Media Attachment Layer</button>
+                  )}
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs font-bold text-slate-500 uppercase">{activeConfigMeta?.label} Base Content</span>
+                  <button onClick={triggerAIGenerate} disabled={aiLoading} className="text-xs font-bold text-emerald-600 flex items-center gap-1">{aiLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} Compile Template Asset</button>
+                </div>
+                <textarea className="textarea h-32 font-mono text-xs" value={messages[focusedType]} onChange={e => setMessages({ ...messages, [focusedType]: e.target.value })} placeholder={activeConfigMeta?.placeholder} />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between py-2 border-t text-xs">
+              <div><p className="font-bold text-slate-700">Dynamic Profile Rewriting Engine</p><p className="text-slate-400">Context schema variables inject automatically from the database index profile matching metrics.</p></div>
+              <button onClick={() => setForm({ ...form, personalise: !form.personalise })} className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${form.personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.personalise ? 'left-5' : 'left-0.5'}`} /></button>
             </div>
           </div>
 
-          <div className="card p-5">
-            <label className="field-label mb-3 block">Add WhatsApp Contacts</label>
-            {/* Safe cross-channel prop configuration */}
-            <LeadSelector selected={selected} onChange={setSelected} requirePhone={true} />
-          </div>
+          <div className="card p-5"><label className="field-label mb-2 block">Recipient Segment Node Target</label><LeadSelector selected={selected} onChange={setSelected} requirePhone={true} /></div>
         </div>
 
-        {/* Live Preview Panel Container */}
+        {/* Live Multi-Variant Simulator Workspace View */}
         <div>
-          <div className="card p-5 sticky top-6">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5"><Eye size={14} className="text-slate-400" /> Live WhatsApp Preview</p>
+          <div className="card p-5 sticky top-6 space-y-4">
+            <div className="flex justify-between items-center">
+              <span className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1"><Eye size={13} /> Simulation Viewport Panel</span>
               {leadIds.length > 1 && (
-                <div className="flex items-center gap-1 text-xs text-slate-400">
-                  <button onClick={() => setPreviewIdx(p => Math.max(0, p - 1))} disabled={previewIdx === 0} className="btn-icon p-1 disabled:opacity-30">‹</button>
-                  {previewIdx + 1}/{leadIds.length}
-                  <button onClick={() => setPreviewIdx(p => Math.min(leadIds.length - 1, p + 1))} disabled={previewIdx >= leadIds.length - 1} className="btn-icon p-1 disabled:opacity-30">›</button>
+                <div className="flex items-center gap-1 text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border">
+                  <button onClick={() => setPreviewIdx(p => Math.max(0, p - 1))} disabled={previewIdx === 0} className="font-bold">‹</button>
+                  <span>{previewIdx + 1}/{leadIds.length}</span>
+                  <button onClick={() => setPreviewIdx(p => Math.min(leadIds.length - 1, p + 1))} disabled={previewIdx >= leadIds.length - 1} className="font-bold">›</button>
                 </div>
               )}
             </div>
 
-            {selected.size === 0 && <div className="py-12 text-center text-sm text-slate-400">Select leads to view dynamic simulation</div>}
-            {previewLoading && <div className="py-12 flex justify-center"><Loader2 size={18} className="animate-spin text-emerald-500" /></div>}
-            
-            {!previewLoading && preview && selected.size > 0 && (
-              <div className="space-y-3">
-                <div className="rounded-xl p-4" style={{ backgroundColor: '#e5ddd5' }}>
+            {selected.size === 0 && <div className="py-12 text-center text-xs text-slate-400 border border-dashed rounded-xl">Select a customer data tracking row item parameter logic to view dynamic response matrices</div>}
+            {previewLoading && <div className="py-12 flex justify-center"><Loader2 size={16} className="animate-spin text-emerald-500" /></div>}
+
+            {!previewLoading && messages[focusedType]?.trim() && selected.size > 0 && (
+              <div className="space-y-3 fade-up">
+                <p className="text-[10px] font-black tracking-wider text-slate-400 uppercase">Simulated Device Output Layout ({focusedType}):</p>
+                <div className="p-4 rounded-xl shadow-inner border" style={{ backgroundColor: '#e5ddd5' }}>
                   <div className="flex justify-end">
-                    <div className="bg-[#dcf8c6] rounded-2xl rounded-tr-sm px-4 py-3 shadow-sm max-w-[85%]">
-                      <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{preview.message}</p>
-                      <p className="text-[10px] text-slate-500 text-right mt-1">
-                        {new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} ✓✓
-                      </p>
+                    <div className="bg-[#dcf8c6] p-3 rounded-2xl rounded-tr-none shadow-2xs max-w-[85%] text-xs space-y-1 text-slate-800 leading-relaxed">
+                      {focusedType === 'image' && imageUrl && <img src={imageUrl} className="w-full h-20 object-cover rounded-lg mb-1" />}
+                      <p className="whitespace-pre-wrap">{previews[focusedType] || messages[focusedType]}</p>
                     </div>
                   </div>
                 </div>
-                
-                <div className="bg-slate-50 rounded-xl p-3 border border-slate-200 text-xs text-slate-500">
-                  <span className="font-semibold block text-slate-700 mb-1">Active Prompting Metadata:</span>
-                  <p className="truncate"><strong className="text-slate-600">Company:</strong> {activeLead?.company_name || activeLead?.company || '-'}</p>
-                  <p className="text-slate-600 mt-1"><strong className="text-slate-600">AI Context Profile:</strong> {activeLead?.business_description || activeLead?.business_details || 'No active details found'}</p>
+
+                <div className="p-3 bg-slate-50 border rounded-xl text-[11px] text-slate-500 space-y-0.5">
+                  <span className="font-bold text-slate-700 block mb-1">Target Account Profile Verification Checklist:</span>
+                  <p><strong className="text-slate-600">Company Name:</strong> {activeLead?.company_name || activeLead?.company || '-'}</p>
+                  <p className="line-clamp-2"><strong className="text-slate-600">Context Summary Vector:</strong> {activeLead?.business_description || activeLead?.business_details || 'Empty value string field context'}</p>
                 </div>
               </div>
             )}
@@ -466,23 +429,21 @@ function CampaignCreate({ onBack, onDone }) {
         </div>
       </div>
 
-      <div className="mt-6 pt-5 border-t border-slate-200 flex items-center gap-3">
-        <button onClick={submit} disabled={submitting} className="btn-primary px-8">
-          {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-          {submitting ? 'Creating...' : `Send to ${selected.size} leads`}
+      <div className="flex gap-2 justify-end pt-3 border-t">
+        <button onClick={onBack} className="px-4 py-1.5 text-xs border rounded-xl font-bold hover:bg-slate-50">Cancel</button>
+        <button onClick={submitCampaignPipeline} disabled={submitting || selected.size === 0} className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
+          {submitting ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Deploy Strategy Matrix
         </button>
-        <button onClick={onBack} className="btn-ghost">Cancel</button>
       </div>
     </div>
   )
 }
 
 // ═══════════════════════════════════════════════════════════
-// WHATSAPP SINGLE SEND VIEW (MULTI-VARIANT AI PERSONALIZATION)
+// WHATSAPP SINGLE SEND DISPATCH PIPELINE
 // ═══════════════════════════════════════════════════════════
 function WhatsAppSingleSend() {
   const [lead, setLead] = useState(null)
-  // Support independent selection arrays for Hook, Detailed, and Image variants combo selections
   const [activeTypes, setActiveTypes] = useState(new Set(['hook']))
   const [messages, setMessages] = useState({ hook: '', detailed: '', image: '' })
   const [previews, setPreviews] = useState({ hook: null, detailed: null, image: null })
@@ -515,50 +476,42 @@ function WhatsAppSingleSend() {
     setGenerating(p => ({ ...p, [type]: true }))
     try {
       const { data } = await waApi.preview({
-        message: '',
-        lead_id: lead?.id || 0,
+        message: '', lead_id: lead?.id || 0,
         lead_name: lead?.contact_name || lead?.name || '',
         lead_company: lead?.company_name || lead?.company || '',
-        business_details: singleDesc,
-        personalise: false,
-        generate_template: true,
-        message_type: type,
-        context_hint: t.hint,
+        business_details: singleDesc, personalise: false, generate_template: true,
+        message_type: type, context_hint: t.hint,
       })
       setMsg(type, data.message || '')
-      toast.success(`${t.label} compilation finished`)
+      toast.success(`${t.label} generated`)
     } catch {
-      toast.error('AI generation failed')
+      toast.error('Generation failed')
     } finally {
       setGenerating(p => ({ ...p, [type]: false }))
     }
   }
 
   const previewSingleType = async (type) => {
-    if (!messages[type]?.trim()) { toast.error('Enter a message first'); return }
+    if (!messages[type]?.trim()) return toast.error('Enter content layout parameter parameters text first')
     setPreviewing(p => ({ ...p, [type]: true }))
     try {
       const { data } = await waApi.preview({
-        message: messages[type],
-        lead_id: lead?.id || 0,
+        message: messages[type], lead_id: lead?.id || 0,
         lead_name: lead?.contact_name || lead?.name || '',
         lead_company: lead?.company_name || lead?.company || '',
-        business_details: singleDesc,
-        personalise,
-        message_type: type,
+        business_details: singleDesc, personalise, message_type: type,
       })
       setPreviews(p => ({ ...p, [type]: data }))
     } catch {
-      toast.error('Preview processing failed')
+      toast.error('Preview system error')
     } finally {
       setPreviewing(p => ({ ...p, [type]: false }))
     }
   }
 
   const executeSend = async () => {
-    if (!lead?.phone) { toast.error('Select a recipient target first'); return }
+    if (!lead?.phone) return toast.error('Select target recipient index node handle parameter parameters configuration')
     const types = Array.from(activeTypes)
-    
     setSending(true)
     const sent = new Set()
 
@@ -566,7 +519,7 @@ function WhatsAppSingleSend() {
       const finalMsg = previews[type]?.message || messages[type] || ''
       try {
         if (type === 'image') {
-          if (!imageFile) { toast.error('Upload image file first'); continue }
+          if (!imageFile) { toast.error('Upload image file attachment'); continue }
           await new Promise((resolve, reject) => {
             const reader = new FileReader()
             reader.onload = async () => {
@@ -583,32 +536,20 @@ function WhatsAppSingleSend() {
           await waApi.send({ phone: lead.phone, message: finalMsg, personalise: false })
           sent.add(type)
         }
-      } catch (e) {
-        toast.error(`Dispatch failed for ${type}`)
+      } catch {
+        toast.error(`Fault drop-off on output branch element ${type.toUpperCase()}`)
       }
     }
 
     setSending(false)
     if (sent.size > 0) {
-      toast.success('Payloards dispatched successfully')
+      toast.success('Dispatched variant operations stack successfully')
       setSentTypes(sent)
       setTimeout(() => {
-        setLead(null)
-        setMessages({ hook: '', detailed: '', image: '' })
-        setPreviews({ hook: null, detailed: null, image: null })
-        setImageFile(null)
-        setImageUrl(null)
-        setSentTypes(new Set())
+        setLead(null); setMessages({ hook: '', detailed: '', image: '' }); setPreviews({ hook: null, detailed: null, image: null });
+        setImageFile(null); setImageUrl(null); setSentTypes(new Set())
       }, 1500)
     }
-  }
-
-  const handleImagePick = (file) => {
-    setImageFile(file)
-    const r = new FileReader()
-    r.onload = e => setImageUrl(e.target.result)
-    r.readAsDataURL(file)
-    setPreviews(p => ({ ...p, image: null }))
   }
 
   const TYPE_COLORS = {
@@ -618,140 +559,80 @@ function WhatsAppSingleSend() {
   }
 
   return (
-    <div className="max-w-5xl mx-auto">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center justify-center">
-          <MessageSquare size={17} className="text-emerald-600" />
-        </div>
-        <div>
-          <h1 className="text-lg font-bold text-slate-900">Direct WhatsApp Dispatch</h1>
-          <p className="text-xs text-slate-400">Target a direct profile via contextual variants combo metrics</p>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-6xl mx-auto items-start">
+      <div className="space-y-4">
+        <div className="card p-5"><span className="field-label mb-2 block">Direct Target Node Picker</span><LeadSelector selected={lead ? new Map([[lead.id, lead]]) : new Map()} onChange={(map) => setLead(Array.from(map.values())[0] || null)} requirePhone={true} /></div>
+        {lead && (
+          <div className="card p-3 bg-slate-50 border text-xs text-slate-500 space-y-0.5 fade-up">
+            <span className="font-bold text-slate-700 block">Target Account Summary:</span>
+            <p><strong>Company:</strong> {lead.company_name || lead.company || '-'}</p>
+            <p className="line-clamp-3"><strong>AI Profile Vector:</strong> {singleDesc || 'Empty fields'}</p>
+          </div>
+        )}
+
+        <div className="card p-5 space-y-4">
+          <div>
+            <label className="field-label mb-2">Message Matrix configurations</label>
+            <div className="space-y-1.5">
+              {MSG_TYPES.map(t => {
+                const active = activeTypes.has(t.id)
+                const colors = TYPE_COLORS[t.id]
+                return (
+                  <button key={t.id} onClick={() => toggleType(t.id)} className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all ${active ? `${colors.pill} border-current` : 'bg-slate-50 text-slate-400'}`}>
+                    <span className="flex items-center gap-1.5"><TypeIcon id={t.id} /> {t.label} Layout</span>
+                    {active && <Check size={12} />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <button onClick={executeSend} disabled={sending || !lead} className="btn-primary w-full justify-center text-xs font-bold py-2">{sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Execute Single Send Dispatch</button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <div className="space-y-4">
-          <div className="card p-5">
-            <span className="field-label mb-2 block">Recipient Selection Matrix</span>
-            <LeadSelector 
-              selected={lead ? new Map([[lead.id, lead]]) : new Map()} 
-              onChange={(map) => {
-                const selectedLead = Array.from(map.values())[0]
-                setLead(selectedLead || null)
-              }} 
-              requirePhone={true} 
-            />
-          </div>
-
-          {lead && (
-            <div className="card p-4 bg-slate-50 border border-slate-200 text-xs text-slate-500 space-y-1">
-              <span className="font-semibold block text-slate-700 mb-1">Target Context Metadata:</span>
-              <p><strong className="text-slate-600">Company:</strong> {lead.company_name || lead.company || '-'}</p>
-              <p className="text-slate-600 pt-1 leading-relaxed"><strong className="text-slate-600">AI Description Profile:</strong> {singleDesc || 'No details provided'}</p>
-            </div>
-          )}
-
-          <div className="card p-5 space-y-4">
-            <div>
-              <label className="field-label mb-2">Message Matrix Configurations</label>
-              <div className="space-y-2">
-                {MSG_TYPES.map(t => {
-                  const active = activeTypes.has(t.id)
-                  const colors = TYPE_COLORS[t.id]
-                  return (
-                    <button key={t.id} onClick={() => toggleType(t.id)}
-                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-sm font-medium transition-all text-left ${active ? `${colors.pill} shadow-sm` : 'border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300 hover:bg-white'}`}>
-                      <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border transition-all ${active ? 'bg-emerald-500 border-emerald-500' : 'border-slate-300 bg-white'}`}>
-                        {active && <Check size={10} className="text-white" />}
-                      </div>
-                      <span className={active ? colors.header : 'text-slate-400'}><TypeIcon id={t.id} /></span>
-                      <div className="flex-1 min-w-0">
-                        <span className="block">{t.label}</span>
-                        <span className={`text-[10px] font-normal ${active ? 'opacity-70' : 'text-slate-400'}`}>{t.sub}</span>
-                      </div>
-                    </button>
-                  )
-                })}
+      <div className="lg:col-span-2 space-y-4">
+        {MSG_TYPES.filter(t => activeTypes.has(t.id)).map(t => {
+          const colors = TYPE_COLORS[t.id]
+          return (
+            <div key={t.id} className="card p-5 space-y-3">
+              <div className="flex justify-between items-center border-b pb-1.5">
+                <span className={`text-xs font-black uppercase tracking-wider flex items-center gap-1 ${colors.header}`}><TypeIcon id={t.id} /> {t.label} Layer</span>
+                <button onClick={() => generateSingleMsg(t.id)} disabled={generating[t.id]} className="text-xs font-bold text-emerald-600 flex items-center gap-1">{generating[t.id] ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} AI Compile</button>
               </div>
-            </div>
 
-            <div className="flex items-center justify-between py-2.5 border-t border-slate-100">
-              <div>
-                <p className="text-sm font-medium text-slate-800">AI Personalization</p>
-                <p className="text-xs text-slate-400">Apply context descriptions</p>
-              </div>
-              <button onClick={() => setPersonalise(p => !p)} className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}>
-                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${personalise ? 'left-5' : 'left-0.5'}`} />
-              </button>
-            </div>
-
-            <button onClick={executeSend} disabled={sending || !lead} className="btn-primary w-full">
-              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-              {sending ? 'Processing Pipeline...' : `Execute Single Send`}
-            </button>
-          </div>
-        </div>
-
-        <div className="lg:col-span-2 space-y-4">
-          {MSG_TYPES.filter(t => activeTypes.has(t.id)).map(t => {
-            const colors = TYPE_COLORS[t.id]
-            return (
-              <div key={t.id} className={`card p-5 transition-all ${sentTypes.has(t.id) ? 'ring-2 ring-emerald-400' : ''}`}>
-                <div className="flex items-center gap-2 mb-3">
-                  <span className={`flex items-center gap-1.5 text-sm font-semibold ${colors.header}`}><TypeIcon id={t.id} /> {t.label}</span>
-                  <button onClick={() => generateSingleMsg(t.id)} disabled={generating[t.id]} className="ml-auto flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
-                    {generating[t.id] ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} AI Compile
-                  </button>
-                </div>
-
-                {t.id === 'image' && (
-                  <div className="mb-3">
-                    {imageUrl ? (
-                      <div className="relative mb-2">
-                        <img src={imageUrl} alt="preview" className="w-full h-28 object-cover rounded-xl border border-slate-200" />
-                        <button onClick={() => { setImageFile(null); setImageUrl(null) }} className="absolute top-2 right-2 w-6 h-6 bg-white rounded-full flex items-center justify-center text-slate-500"><X size={11} /></button>
-                      </div>
-                    ) : (
-                      <button onClick={() => imagePickRef.current?.click()} className="w-full h-20 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center gap-1.5 text-slate-400 hover:border-emerald-300 hover:text-emerald-500 transition-all mb-2">
-                        <Image size={18} /><span className="text-xs">Attach Pipeline Image Asset</span>
-                      </button>
-                    )}
-                    <input ref={imagePickRef} type="file" accept="image/*" className="hidden" onChange={e => e.target.files[0] && handleImagePick(e.target.files[0])} />
-                  </div>
-                )}
-
-                <textarea className="textarea font-mono text-xs leading-relaxed w-full mb-2" style={{ height: `${t.rows * 24}px` }}
-                  value={messages[t.id]} onChange={e => setMsg(t.id, e.target.value)} placeholder={t.placeholder} />
-
-                <div className="flex items-start gap-2">
-                  <button onClick={() => previewSingleType(t.id)} disabled={previewing[t.id] || !messages[t.id]?.trim()} className="btn-secondary text-xs py-1.5 px-3 flex items-center gap-1.5">
-                    {previewing[t.id] ? <Loader2 size={11} className="animate-spin" /> : <Eye size={11} />} Parse Sandbox
-                  </button>
-                  {previews[t.id] && (
-                    <div className={`flex-1 rounded-xl px-3 py-2 text-xs whitespace-pre-wrap leading-relaxed ${colors.preview}`}>
-                      {previews[t.id].message}
-                    </div>
+              {t.id === 'image' && (
+                <div>
+                  {imageUrl ? (
+                    <div className="relative w-full h-20 border rounded-xl overflow-hidden mb-2"><img src={imageUrl} className="w-full h-full object-cover" /><button onClick={() => { setImageFile(null); setImageUrl(null) }} className="absolute top-1 right-1 p-1 bg-white border rounded-full shadow"><X size={10} /></button></div>
+                  ) : (
+                    <button onClick={() => imagePickRef.current?.click()} className="w-full h-16 border-2 border-dashed text-slate-400 text-xs flex flex-col items-center justify-center rounded-xl gap-1"><Image size={14} /> Link Dynamic Image File Asset</button>
                   )}
+                  <input ref={imagePickRef} type="file" accept="image/*" className="hidden" onChange={e => { const f=e.target.files[0]; if(f){ setImageFile(f); const r=new FileReader(); r.onload=ev=>setImageUrl(ev.target.result); r.readAsDataURL(f) } }} />
                 </div>
+              )}
+
+              <textarea className="textarea font-mono text-xs h-24" value={messages[t.id]} onChange={e => setMsg(t.id, e.target.value)} placeholder={t.placeholder} />
+              <div className="flex gap-2 items-start">
+                <button onClick={() => previewSingleType(t.id)} disabled={previewing[t.id] || !messages[t.id]?.trim()} className="btn-secondary py-1 text-xs px-3 font-bold flex items-center gap-1">{previewing[t.id] ? <Loader2 size={11} className="animate-spin" /> : <Eye size={11} />} Parse Sandbox</button>
+                {previews[t.id] && <div className={`flex-1 p-2.5 rounded-xl border text-xs whitespace-pre-wrap leading-relaxed ${colors.preview}`}>{previews[t.id].message || previews[t.id]}</div>}
               </div>
-            )
-          })}
-        </div>
+            </div>
+          )
+        })}
       </div>
     </div>
   )
 }
 
 // ═══════════════════════════════════════════════════════════
-// MAIN ROOT WHATSAPP ENTRY LAYER
+// GLOBAL SYSTEM MAIN EXPORT LAYER
 // ═══════════════════════════════════════════════════════════
 export default function WhatsAppPage() {
   const [view, setView] = useState('list')
   const [detailId, setDetailId] = useState(null)
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto p-4 text-slate-800">
-      {/* Keeping Baileys Status mounted consistently at layout entry head */}
+    <div className="p-1 space-y-4 max-w-7xl mx-auto">
       {view === 'list' && (
         <CampaignList
           onCreate={() => setView('create')}
@@ -759,14 +640,11 @@ export default function WhatsAppPage() {
           onDetail={id => { setDetailId(id); setView('detail') }}
         />
       )}
-
       {view === 'create' && <CampaignCreate onBack={() => setView('list')} onDone={() => setView('list')} />}
       {view === 'detail' && <CampaignDetail id={detailId} onBack={() => setView('list')} />}
       {view === 'single' && (
         <div className="space-y-4">
-          <button type="button" onClick={() => setView('list')} className="btn-ghost -ml-2 mb-2">
-            <ChevronLeft size={16} /> Back to campaigns
-          </button>
+          <button onClick={() => setView('list')} className="btn-ghost -ml-2 text-xs font-bold flex items-center gap-1 text-slate-400 hover:text-slate-800"><ChevronLeft size={14} /> Back to core monitor</button>
           <WhatsAppSingleSend />
         </div>
       )}
