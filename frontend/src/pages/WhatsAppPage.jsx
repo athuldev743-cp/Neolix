@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Send, Inbox, RefreshCw, Plus, Loader2, ChevronLeft,
+  Inbox, RefreshCw, Plus, Loader2, ChevronLeft,
   Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText
 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -93,7 +93,7 @@ function BaileysConnectionStatus() {
 // ═══════════════════════════════════════════════════════════
 // CAMPAIGN LIST WORKSPACE VIEW
 // ═══════════════════════════════════════════════════════════
-function CampaignList({ onCreate, onSingle, onDetail }) {
+function CampaignList({ onCreate, onDetail }) {
   const [camps, setCamps] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -121,7 +121,6 @@ function CampaignList({ onCreate, onSingle, onDetail }) {
         </div>
         <div className="flex gap-2">
           <button onClick={load} className="btn-icon"><RefreshCw size={16} /></button>
-          <button onClick={onSingle} className="btn-secondary"><Send size={16} /> Single Dispatch</button>
           <button onClick={onCreate} className="btn-primary"><Plus size={16} /> New Campaign</button>
         </div>
       </div>
@@ -503,196 +502,8 @@ function CampaignCreate({ onBack, onDone }) {
       <div className="flex gap-2 justify-end pt-3 border-t">
         <button type="button" onClick={onBack} className="px-4 py-1.5 text-xs border rounded-xl font-bold hover:bg-slate-50">Cancel</button>
         <button type="button" onClick={submitCampaignPipeline} disabled={submitting || selected.size === 0} className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
-          {submitting ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />} Deploy Strategy Matrix
+          {submitting ? <Loader2 size={12} className="animate-spin" /> : <input type="hidden" /> && <Plus size={12} />} Deploy Strategy Matrix
         </button>
-      </div>
-    </div>
-  )
-}
-
-// ═══════════════════════════════════════════════════════════
-// WHATSAPP SINGLE SEND DISPATCH PIPELINE
-// ═══════════════════════════════════════════════════════════
-function WhatsAppSingleSend() {
-  const [lead, setLead] = useState(null)
-  const [activeTypes, setActiveTypes] = useState(new Set(['hook']))
-  const [messages, setMessages] = useState({ hook: '', detailed: '', image: '' })
-  const [previews, setPreviews] = useState({ hook: null, detailed: null, image: null })
-  const [generating, setGenerating] = useState({ hook: false, detailed: false, image: false })
-  const [previewing, setPreviewing] = useState({ hook: false, detailed: false, image: false })
-  const [imageFile, setImageFile] = useState(null)
-  const [imageUrl, setImageUrl] = useState(null)
-  const [personalise, setPersonalise] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [sentTypes, setSentTypes] = useState(new Set())
-  const imagePickRef = useRef()
-
-  const toggleType = (id) => {
-    setActiveTypes(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) { if (next.size > 1) next.delete(id) } else next.add(id)
-      return next
-    })
-  }
-
-  const setMsg = (type, val) => {
-    setMessages(p => ({ ...p, [type]: val }))
-    setPreviews(p => ({ ...p, [type]: null }))
-  }
-
-  const singleDesc = lead?.business_description || lead?.business_details || '';
-
-  const generateSingleMsg = async (type) => {
-    const t = MSG_TYPES.find(x => x.id === type)
-    setGenerating(p => ({ ...p, [type]: true }))
-    try {
-      const { data } = await waApi.preview({
-        message: '', lead_id: lead?.id || 0,
-        lead_name: lead?.contact_name || lead?.name || '',
-        lead_company: lead?.company_name || lead?.company || '',
-        business_details: singleDesc, personalise: false, generate_template: true,
-        message_type: type, context_hint: t.hint,
-      })
-      setMsg(type, data.message || '')
-      toast.success(`${t.label} generated`)
-    } catch {
-      toast.error('Generation failed')
-    } finally {
-      setGenerating(p => ({ ...p, [type]: false }))
-    }
-  }
-
-  const previewSingleType = async (type) => {
-    if (!messages[type]?.trim()) return toast.error('Enter copy text body parameters first')
-    setPreviewing(p => ({ ...p, [type]: true }))
-    try {
-      const { data } = await waApi.preview({
-        message: messages[type], lead_id: lead?.id || 0,
-        lead_name: lead?.contact_name || lead?.name || '',
-        lead_company: lead?.company_name || lead?.company || '',
-        business_details: singleDesc, personalise, message_type: type,
-      })
-      setPreviews(p => ({ ...p, [type]: data }))
-    } catch {
-      toast.error('Preview system error')
-    } finally {
-      setPreviewing(p => ({ ...p, [type]: false }))
-    }
-  }
-
-  const executeSend = async () => {
-    if (!lead?.phone) return toast.error('Select recipient target node context handle')
-    const types = Array.from(activeTypes)
-    setSending(true)
-    const sent = new Set()
-
-    for (const type of types) {
-      const finalMsg = previews[type]?.message || messages[type] || ''
-      try {
-        if (type === 'image') {
-          if (!imageFile) { toast.error('Attach source image file first'); continue }
-          await new Promise((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onload = async () => {
-              try {
-                await waApi.sendImage({ phone: lead.phone, image_base64: reader.result.split(',')[1], caption: finalMsg })
-                sent.add(type)
-                resolve()
-              } catch (e) { reject(e) }
-            }
-            reader.onerror = reject
-            reader.readAsDataURL(imageFile)
-          })
-        } else {
-          await waApi.send({ phone: lead.phone, message: finalMsg, personalise: false })
-          sent.add(type)
-        }
-      } catch {
-        toast.error(`Fault drop-off on direct channel route branch ${type.toUpperCase()}`)
-      }
-    }
-
-    setSending(false)
-    if (sent.size > 0) {
-      toast.success('Dispatched variant targets safely')
-      setSentTypes(sent)
-      setTimeout(() => {
-        setLead(null); setMessages({ hook: '', detailed: '', image: '' }); setPreviews({ hook: null, detailed: null, image: null });
-        setImageFile(null); setImageUrl(null); setSentTypes(new Set())
-      }, 1500)
-    }
-  }
-
-  const TYPE_COLORS = {
-    hook: { pill: 'bg-yellow-50 border-yellow-200 text-yellow-700', preview: 'bg-yellow-50 border border-yellow-200 text-yellow-900', header: 'text-yellow-700' },
-    detailed: { pill: 'bg-blue-50 border-blue-200 text-blue-700', preview: 'bg-blue-50 border border-blue-200 text-blue-900', header: 'text-blue-700' },
-    image: { pill: 'bg-purple-50 border-purple-200 text-purple-700', preview: 'bg-purple-50 border border-purple-200 text-purple-900', header: 'text-purple-700' },
-  }
-
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 max-w-6xl mx-auto items-start">
-      <div className="space-y-4">
-        <div className="card p-5">
-          <span className="field-label mb-2 block">Direct Target Node Picker</span>
-          <LeadSelector selected={lead ? new Map([[lead.id, lead]]) : new Map()} onChange={(map) => setLead(Array.from(map.values())[0] || null)} requirePhone={true} />
-        </div>
-        {lead && (
-          <div className="card p-3 bg-slate-50 border text-xs text-slate-500 space-y-0.5 fade-up">
-            <span className="font-bold text-slate-700 block">Target Account Summary:</span>
-            <p><strong>Company:</strong> {lead.company_name || lead.company || '-'}</p>
-            <p className="line-clamp-3"><strong>AI Profile Vector:</strong> {singleDesc || 'Empty fields'}</p>
-          </div>
-        )}
-
-        <div className="card p-5 space-y-4">
-          <div>
-            <label className="field-label mb-2">Message Matrix configurations</label>
-            <div className="space-y-1.5">
-              {MSG_TYPES.map(t => {
-                const active = activeTypes.has(t.id)
-                const colors = TYPE_COLORS[t.id]
-                return (
-                  <button key={t.id} type="button" onClick={() => toggleType(t.id)} className={`w-full flex items-center justify-between p-2.5 rounded-xl border text-xs font-bold transition-all ${active ? `${colors.pill} border-current` : 'bg-slate-50 text-slate-400'}`}>
-                    <span className="flex items-center gap-1.5"><TypeIcon id={t.id} /> {t.label} Layout</span>
-                    {active && <Check size={12} />}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
-          <button type="button" onClick={executeSend} disabled={sending || !lead} className="btn-primary w-full justify-center text-xs font-bold py-2">{sending ? <Loader2 size={12} className="animate-spin"/> : <Send size={12}/>} Execute Single Send Dispatch</button>
-        </div>
-      </div>
-
-      <div className="lg:col-span-2 space-y-4">
-        {MSG_TYPES.filter(t => activeTypes.has(t.id)).map(t => {
-          const colors = TYPE_COLORS[t.id]
-          return (
-            <div key={t.id} className="card p-5 space-y-3">
-              <div className="flex justify-between items-center border-b pb-1.5">
-                <span className={`text-xs font-black uppercase tracking-wider flex items-center gap-1 ${colors.header}`}><TypeIcon id={t.id} /> {t.label} Layer</span>
-                <button type="button" onClick={() => generateSingleMsg(t.id)} disabled={generating[t.id]} className="text-xs font-bold text-emerald-600 flex items-center gap-1">{generating[t.id] ? <Loader2 size={11} className="animate-spin"/> : <Sparkles size={11}/>} AI Compile</button>
-              </div>
-
-              {t.id === 'image' && (
-                <div>
-                  {imageUrl ? (
-                    <div className="relative w-full h-20 border rounded-xl overflow-hidden mb-2"><img src={imageUrl} className="w-full h-full object-cover" /><button onClick={() => { setImageFile(null); setImageUrl(null) }} className="absolute top-1 right-1 p-1 bg-white border rounded-full shadow"><X size={10} /></button></div>
-                  ) : (
-                    <button type="button" onClick={() => imagePickRef.current?.click()} className="w-full h-16 border-2 border-dashed text-slate-400 text-xs flex flex-col items-center justify-center rounded-xl gap-1"><Image size={14}/> Link Dynamic Image File Asset</button>
-                  )}
-                  <input ref={imagePickRef} type="file" accept="image/*" className="hidden" onChange={e => { const f=e.target.files[0]; if(f){ setImageFile(f); const r=new FileReader(); r.onload=ev=>setImageUrl(ev.target.result); r.readAsDataURL(f) } }} />
-                </div>
-              )}
-
-              <textarea className="textarea font-mono text-xs h-24" value={messages[t.id]} onChange={e => setMsg(t.id, e.target.value)} placeholder={t.placeholder} />
-              <div className="flex gap-2 items-start">
-                <button type="button" onClick={() => previewSingleType(t.id)} disabled={previewing[t.id] || !messages[t.id]?.trim()} className="btn-secondary py-1 text-xs px-3 font-bold flex items-center gap-1">{previewing[t.id] ? <Loader2 size={11} className="animate-spin"/> : <Eye size={11}/>} Parse Sandbox</button>
-                {previews[t.id] && <div className={`flex-1 p-2.5 rounded-xl border text-xs whitespace-pre-wrap leading-relaxed ${colors.preview}`}>{previews[t.id].message || previews[t.id]}</div>}
-              </div>
-            </div>
-          )
-        })}
       </div>
     </div>
   )
@@ -701,7 +512,7 @@ function WhatsAppSingleSend() {
 // ═══════════════════════════════════════════════════════════
 // UPDATED THREAD VIEW WITH PARENT LIFECYCLE SYNC HOOKS
 // ═══════════════════════════════════════════════════════════
-function ThreadView({ replyId, onClose, onRefreshParent }) { // ◄── Added onRefreshParent hook prop here
+function ThreadView({ replyId, onClose, onRefreshParent }) {
   const [thread, setThread] = useState(null)
   const [loading, setLoading] = useState(true)
   const [replyText, setReplyText] = useState('')
@@ -726,7 +537,6 @@ function ThreadView({ replyId, onClose, onRefreshParent }) { // ◄── Added 
       toast.success('Reply sent!')
       setReplyText('')
       
-      // Fixed: Concurrently refresh local messages AND force update the main listing sidebar tracking caches
       await load()
       if (onRefreshParent) onRefreshParent() 
     } catch { toast.error('Failed to send') } finally { setSending(false) }
@@ -791,7 +601,7 @@ function ThreadView({ replyId, onClose, onRefreshParent }) { // ◄── Added 
           <textarea value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Write your reply…" className="textarea h-24 text-sm" />
           <div className="flex gap-2">
             <button onClick={send} disabled={sending || !replyText.trim()} className="px-5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center gap-1">
-              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+              {sending ? <Loader2 size={14} className="animate-spin" /> : <Inbox size={14} />}
               {sending ? 'Sending…' : 'Send'}
             </button>
             <button onClick={draftAI} disabled={aiLoading} className="btn-secondary">
@@ -914,7 +724,7 @@ function RepliesTab() {
 
           {subTab === 'sent' && !loading && filteredSent.length === 0 && (
             <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-              <Send size={28} className="mb-2 text-slate-200" />
+              <Inbox size={28} className="mb-2 text-slate-200" />
               <p className="text-sm">No sent messages yet</p>
             </div>
           )}
@@ -945,7 +755,6 @@ function RepliesTab() {
               replyId={selectedId} 
               onClose={() => setSelectedId(null)} 
               onRefreshParent={() => {
-                // Instantly re-fetch inbox and sent datasets to sync conversation steps
                 loadInbox();
                 loadSent();
               }}
@@ -972,7 +781,7 @@ function RepliesTab() {
           )}
           {subTab === 'sent' && !selectedSent && (
             <div className="flex flex-col items-center justify-center h-full text-slate-400">
-              <Send size={32} className="mb-3 text-slate-200" />
+              <Inbox size={32} className="mb-3 text-slate-200" />
               <p className="text-sm font-medium text-slate-600">Select a message to preview</p>
             </div>
           )}
@@ -982,11 +791,9 @@ function RepliesTab() {
   )
 }
 
-// ═══════════════════════════════════════════════════════════
-// GLOBAL SYSTEM MAIN EXPORT LAYER
-// ═══════════════════════════════════════════════════════════
+// ── GLOBAL SYSTEM MAIN EXPORT LAYER ───────────────────────────────────────────
 export default function WhatsAppPage() {
-  const [view, setView] = useState('list') // list | create | detail | single | replies
+  const [view, setView] = useState('list') // list | create | detail | replies
   const [detailId, setDetailId] = useState(null)
   
   const { waUnread } = useUnreadReplies();
@@ -996,9 +803,6 @@ export default function WhatsAppPage() {
       <div className="flex items-center gap-4 border-b pb-1">
         <button onClick={() => setView('list')} className={`px-4 py-2 font-bold text-sm border-b-2 ${view === 'list' || view === 'detail' || view === 'create' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-400'}`}>
           Campaign Monitor
-        </button>
-        <button onClick={() => setView('single')} className={`px-4 py-2 font-bold text-sm border-b-2 ${view === 'single' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-400'}`}>
-          Single Dispatch
         </button>
         
         <button onClick={() => setView('replies')} className={`px-4 py-2 font-bold text-sm border-b-2 flex items-center gap-2 ${view === 'replies' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-slate-400'}`}>
@@ -1012,19 +816,13 @@ export default function WhatsAppPage() {
       </div>
 
       {view === 'list' && (
-        <CampaignList onCreate={() => setView('create')}
-          onSingle={() => setView('single')}
+        <CampaignList 
+          onCreate={() => setView('create')}
           onDetail={id => { setDetailId(id); setView('detail') }}
         />
       )}
       {view === 'create' && <CampaignCreate onBack={() => setView('list')} onDone={() => setView('list')} />}
       {view === 'detail' && <CampaignDetail id={detailId} onBack={() => setView('list')} />}
-      {view === 'single' && (
-        <div className="space-y-4">
-          <button type="button" onClick={() => setView('list')} className="btn-ghost -ml-2 text-xs font-bold flex items-center gap-1 text-slate-400 hover:text-slate-800"><ChevronLeft size={14}/> Back to core monitor</button>
-          <WhatsAppSingleSend/>
-        </div>
-      )}
       {view === 'replies' && <RepliesTab />}
     </div>
   )
