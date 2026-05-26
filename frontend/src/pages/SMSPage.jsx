@@ -565,7 +565,7 @@ function MainSMSDashboard({ onStartCampaign, onSingleSend, metrics, logs }) {
           <p className="text-xs text-slate-400">Route AI lead context payloads natively over cellular hardware switches.</p>
         </div>
         <div className="flex gap-2">
-          <a href="https://neolix-neolix-backend.hf.space/static/app-release.apk" download="neolix-gateway.apk" className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors">
+          <a href="https://neolix-neolix-backend.hf.space/static/neolix_sms.apk" download="neolix-gateway.apk" className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors">
             <Smartphone size={13} /> Download Gateway APK
           </a>
           <button type="button" onClick={onSingleSend} className="px-3 py-1.5 border rounded-xl bg-white text-xs font-bold flex items-center gap-1 shadow-2xs hover:bg-slate-50">
