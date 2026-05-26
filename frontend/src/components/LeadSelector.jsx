@@ -1,6 +1,6 @@
 /**
  * LeadSelector — reusable lead search + add panel
- * Upgraded to universally support dynamic channel selection matrix blocks (Email / WhatsApp / SMS)
+ * Upgraded to universally support smart batch array matrices (Email / WhatsApp / SMS)
  * Props:
  *   selected: Map<id, lead>
  *   onChange: (newMap) => void
@@ -14,8 +14,7 @@ import {
 import toast from 'react-hot-toast'
 import { leadsApi } from '../services/api'
 
-const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g
-const PHONE_RE = /(?:\+?\d{1,3}[- ]?)?\(?\d{3}\)?[- ]?\d{3}[- ]?\d{4}|\d{10,12}/g
+const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/
 
 function normalizePhone(phone) {
   const digits = (phone || '').replace(/\D/g, '')
@@ -23,109 +22,175 @@ function normalizePhone(phone) {
   return digits
 }
 
-// ── Single dynamic contact input panel ─────────────────────────────────────────
-function SinglePanel({ onAdded, requirePhone }) {
-  const [targetVal, setTargetVal] = useState('')
-  const [name, setName]     = useState('')
-  const [company, setCompany] = useState('')
-  const [businessDesc, setBusinessDesc] = useState('')
+// ── Upgraded Smart Insertion Panel (Handles Multi-Rows + Sheet Auto-Fill) ───────
+function SmartInsertionPanel({ onAdded, requirePhone }) {
+  const [rows, setRows] = useState([
+    { target: '', name: '', company: '', businessDesc: '' }
+  ])
+  const [showClipboard, setShowClipboard] = useState(false)
+  const [clipboardData, setRawClipboardData] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const submit = async () => {
-    if (!targetVal.trim()) return toast.error(requirePhone ? 'Enter a mobile number' : 'Enter an email address')
-    
-    setLoading(true)
-    try {
-      const payload = {
-        contact_name: name,
-        company_name: company,
-        business_details: businessDesc, // Fixed: preserving crucial AI context layer mapping strings
-        source: requirePhone ? 'whatsapp_manual' : 'email_manual',
-      }
+  const handleInputChange = (index, field, value) => {
+    const updatedRows = [...rows]
+    updatedRows[index][field] = value
+    setRows(updatedRows)
+  }
+
+  const handleAddRow = () => {
+    setRows([...rows, { target: '', name: '', company: '', businessDesc: '' }])
+  }
+
+  const handleRemoveRow = (index) => {
+    if (rows.length === 1) {
+      setRows([{ target: '', name: '', company: '', businessDesc: '' }])
+      return
+    }
+    setRows(rows.filter((_, i) => i !== index))
+  }
+
+  // Smart Clipboard Engine: Auto-calculates fields, splits rows, ignores junk column info
+  const handleClipboardParse = () => {
+    if (!clipboardData.trim()) return toast.error('Paste raw dataset text blocks first')
+
+    const textLines = clipboardData.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    const dynamicallyParsedRows = []
+
+    textLines.forEach(line => {
+      const components = line.split(/[|\t,;]/).map(c => c.trim()).filter(Boolean)
+      let targetIndex = -1
 
       if (requirePhone) {
-        const phone = normalizePhone(targetVal)
-        if (phone.length < 10) { toast.error('Enter a valid phone number'); setLoading(false); return }
-        payload.phone = phone
-        payload.email = `${phone}@neolix-channel.local` // Satisfies strict backend architecture constraints
+        // Find first column matching a phone digit signature sequence
+        targetIndex = components.findIndex(c => /^\+?\d[\d\s-]{6,14}$/.test(c.replace(/\D/g, '')))
       } else {
-        if (!targetVal.includes('@')) { toast.error('Enter a valid email'); setLoading(false); return }
-        payload.email = targetVal.toLowerCase().trim()
+        // Find first column matching a raw email structure signature
+        targetIndex = components.findIndex(c => EMAIL_RE.test(c))
       }
 
-      const { data } = await leadsApi.addSingle(payload)
-      toast.success('Contact target synced successfully!')
-      onAdded(data.lead_ids || [data.id || data.lead_id])
-      setTargetVal(''); setName(''); setCompany(''); setBusinessDesc('')
-    } catch { 
-      toast.error('Failed to sync node parameters') 
-    } finally { 
-      setLoading(false) 
+      if (targetIndex !== -1) {
+        const targetVal = components[targetIndex]
+        const restOfData = components.filter((_, i) => i !== targetIndex)
+
+        dynamicallyParsedRows.push({
+          target: targetVal,
+          name: restOfData[0] || '',
+          company: restOfData[1] || '',
+          businessDesc: restOfData.slice(2).join(' ') || '' // Captures trailing items as details, drops unmapped junk
+        })
+      }
+    })
+
+    if (dynamicallyParsedRows.length === 0) {
+      return toast.error(requirePhone ? 'Could not map structural phone data alignments' : 'Could not map structural email data alignments')
     }
+
+    setRows(dynamicallyParsedRows)
+    setRawClipboardData('')
+    setShowClipboard(false)
+    toast.success(`Instantly mapped and generated ${dynamicallyParsedRows.length} matrix entry fields!`)
   }
 
-  return (
-    <div className="p-3 space-y-2">
-      <input 
-        className="input text-sm" 
-        type={requirePhone ? 'tel' : 'email'} 
-        placeholder={requirePhone ? 'WhatsApp / Mobile Number *' : 'Email Address *'}
-        value={targetVal} 
-        onChange={e => setTargetVal(e.target.value)}
-        onKeyDown={e => e.key === 'Enter' && submit()} 
-      />
-      <div className="grid grid-cols-2 gap-2">
-        <input className="input text-sm" placeholder="Contact Name" value={name} onChange={e => setName(e.target.value)} />
-        <input className="input text-sm" placeholder="Company Name" value={company} onChange={e => setCompany(e.target.value)} />
-      </div>
-      <textarea 
-        className="textarea text-xs h-16 resize-none" 
-        placeholder="Business description / details (Important for AI personalization matching)..." 
-        value={businessDesc} 
-        onChange={e => setBusinessDesc(e.target.value)} 
-      />
-      <button onClick={submit} disabled={loading} className="btn-primary btn-sm w-full justify-center">
-        {loading ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />} Add Recipient Node
-      </button>
-    </div>
-  )
-}
+  const handleBatchSubmit = async () => {
+    // Basic structural pre-validation filtering
+    const validRows = rows.filter(r => {
+      if (requirePhone) return normalizePhone(r.target).length >= 10
+      return r.target.includes('@') && EMAIL_RE.test(r.target)
+    })
 
-// ── Bulk dataset parsing row context matrix ────────────────────────────────────
-function BulkPanel({ onAdded, requirePhone }) {
-  const [text, setText] = useState('')
-  const [loading, setLoading] = useState(false)
-  
-  const matches = requirePhone ? (text.match(PHONE_RE) || []) : (text.match(EMAIL_RE) || [])
-  const found = [...new Set(matches.map(m => m.trim()))].length
+    if (validRows.length === 0) {
+      return toast.error(requirePhone ? 'Provide at least one valid 10-digit phone row' : 'Provide at least one valid email row')
+    }
 
-  const submit = async () => {
     setLoading(true)
+    let processedCount = 0
+    const aggregatedIds = []
+
     try {
-      const { data } = await leadsApi.addBulk(text)
-      toast.success(`${data.total_found || found} contacts processed into outbox matrices`)
-      onAdded(data.lead_ids || [])
-      setText('')
-    } catch { 
-      toast.error('Bulk ingestion pipeline timeout') 
-    } finally { 
-      setLoading(false) 
+      await Promise.all(
+        validRows.map(async (row) => {
+          const payload = {
+            contact_name: row.name,
+            company_name: row.company,
+            business_details: row.businessDesc,
+            source: requirePhone ? 'whatsapp_smart_batch' : 'email_smart_batch'
+          }
+
+          if (requirePhone) {
+            const phone = normalizePhone(row.target)
+            payload.phone = phone
+            payload.email = `${phone}@neolix-channel.local`
+          } else {
+            payload.email = row.target.toLowerCase().trim()
+          }
+
+          try {
+            const { data } = await leadsApi.addSingle(payload)
+            if (data.lead_ids?.length) {
+              aggregatedIds.push(...data.lead_ids)
+            } else if (data.id || data.lead_id) {
+              aggregatedIds.push(data.id || data.lead_id)
+            }
+            processedCount++
+          } catch (e) {
+            console.error('Cascading node insert rejected', e)
+          }
+        })
+      )
+
+      if (aggregatedIds.length > 0) onAdded(aggregatedIds)
+      toast.success(`Successfully committed batch: synced ${processedCount} recipient nodes!`)
+      setRows([{ target: '', name: '', company: '', businessDesc: '' }])
+    } catch {
+      toast.error('Batch registration matrix pipeline failure')
+    } finally {
+      setLoading(false)
     }
   }
 
   return (
-    <div className="p-3 space-y-2">
-      <textarea 
-        className="textarea h-28 text-xs font-mono"
-        value={text} 
-        onChange={e => setText(e.target.value)}
-        placeholder={requirePhone ? "9876543210 | John | Acme | Auto parts\n9123456789 | Priya | Dental Clinic" : "email1@co.com\nemail2@co.com"} 
-      />
-      {found > 0 && <p className="text-xs text-emerald-600 font-medium">{found} match dataset matrix logs detected</p>}
-      <button onClick={submit} disabled={loading || !found} className="btn-primary btn-sm w-full justify-center">
-        {loading ? <Loader2 size={13} className="animate-spin" /> : null}
-        Ingest bulk dataset matrix ({found || ''})
-      </button>
+    <div className="p-3 space-y-3">
+      <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl border border-slate-100">
+        <span className="text-[10px] font-black text-slate-400 uppercase tracking-wide">Automated Excel Grid Integration</span>
+        <button type="button" onClick={() => setShowClipboard(!showClipboard)} className="text-[11px] font-bold text-blue-600 hover:text-blue-700 bg-white border px-2.5 py-1 rounded-lg transition-all shadow-3xs">
+          {showClipboard ? 'Close Ingestion Box' : '⚡ Auto-Fill Spreadsheet Block'}
+        </button>
+      </div>
+
+      {showClipboard && (
+        <div className="p-2.5 bg-blue-50/40 border border-blue-200 rounded-xl space-y-2 fade-up">
+          <textarea value={clipboardData} onChange={e => setRawClipboardData(e.target.value)} className="textarea h-20 text-xs font-mono bg-white placeholder-slate-400" placeholder={requirePhone ? "Paste spreadsheet lines directly here...\n9876543210 \t John Smith \t Acme Corp \t Tech Lead\n+918887776655 \t Jane Doe \t Beta Industries" : "Paste spreadsheet lines directly here...\njohn@acme.com \t John Smith \t Acme Corp\njane@beta.com \t Jane Doe \t Beta Industries"} />
+          <button type="button" onClick={handleClipboardParse} className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-lg py-1 font-bold text-xs transition-colors shadow-2xs">Parse and Populate Layout Matrices</button>
+        </div>
+      )}
+
+      <div className="space-y-2.5 max-h-60 overflow-y-auto pr-0.5">
+        {rows.map((row, index) => (
+          <div key={index} className="p-3 bg-slate-50/50 border border-slate-200 rounded-xl space-y-2 fade-up relative">
+            <div className="flex justify-between items-center">
+              <span className="text-[9px] font-black text-slate-400 uppercase">Target Identity Record #{index + 1}</span>
+              <button type="button" onClick={() => handleRemoveRow(index)} className="text-red-500 hover:text-red-700 text-xs font-bold transition-colors">
+                {rows.length === 1 ? 'Reset' : 'Remove'}
+              </button>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <input required className="input text-xs bg-white" type={requirePhone ? 'tel' : 'email'} placeholder={requirePhone ? 'Mobile Number *' : 'Email Address *'} value={row.target} onChange={e => handleInputChange(index, 'target', e.target.value)} />
+              <input className="input text-xs bg-white" placeholder="Contact Name" value={row.name} onChange={e => handleInputChange(index, 'name', e.target.value)} />
+              <input className="input text-xs bg-white" placeholder="Company/Organization" value={row.company} onChange={e => handleInputChange(index, 'company', e.target.value)} />
+            </div>
+            <textarea className="textarea h-12 text-xs bg-white resize-none" placeholder="AI Personalization Custom Context Details String Parameters..." value={row.businessDesc} onChange={e => handleInputChange(index, 'businessDesc', e.target.value)} />
+          </div>
+        ))}
+      </div>
+
+      <div className="flex gap-2 pt-1">
+        <button type="button" onClick={handleAddRow} className="flex-1 py-1.5 border border-dashed border-slate-300 text-slate-500 hover:border-slate-800 hover:text-slate-800 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1">
+          <Plus size={11} /> Append Clean Data Row
+        </button>
+        <button type="button" disabled={loading} onClick={handleBatchSubmit} className="flex-1 bg-slate-900 hover:bg-slate-800 text-white rounded-xl py-1.5 font-bold text-xs transition-all flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs">
+          {loading ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Commit Batch Matrix
+        </button>
+      </div>
     </div>
   )
 }
@@ -279,8 +344,7 @@ export default function LeadSelector({ selected, onChange, requirePhone = false 
   const PANELS = [
     { id: 'upload', icon: Upload,        label: 'Upload File' },
     { id: 'scan',   icon: CreditCard,    label: 'Scan Card' },
-    { id: 'single', icon: requirePhone ? Smartphone : Mail, label: requirePhone ? 'Single Contact' : 'Single Email' },
-    { id: 'bulk',   icon: ClipboardList, label: 'Paste Bulk' },
+    { id: 'smart_insert', icon: ClipboardList, label: 'Smart Insertion Grid' }, // ◄── Swapped legacy single/bulk tabs with integrated Smart Panel
   ]
 
   return (
@@ -326,8 +390,7 @@ export default function LeadSelector({ selected, onChange, requirePhone = false 
               <X size={13} />
             </button>
           </div>
-          {activePanel === 'single' && <SinglePanel onAdded={handleAdded} requirePhone={requirePhone} />}
-          {activePanel === 'bulk'   && <BulkPanel   onAdded={handleAdded} requirePhone={requirePhone} />}
+          {activePanel === 'smart_insert' && <SmartInsertionPanel onAdded={handleAdded} requirePhone={requirePhone} />}
           {activePanel === 'upload' && <UploadPanel onAdded={handleAdded} />}
           {activePanel === 'scan'   && <ScanPanel   onAdded={handleAdded} requirePhone={requirePhone} />}
         </div>
@@ -348,7 +411,6 @@ export default function LeadSelector({ selected, onChange, requirePhone = false 
                   <p className="text-slate-400 text-[11px]">
                     {requirePhone ? `+${lead.phone}` : lead.email} {lead.city ? `· ${lead.city}` : ''}
                   </p>
-                  {/* Dynamic render validation checking matching properties safely */}
                   {(lead.business_description || lead.business_details) && (
                     <p className="text-[10px] text-slate-400 italic max-w-xs truncate mt-0.5">Ctx: {lead.business_description || lead.business_details}</p>
                   )}
