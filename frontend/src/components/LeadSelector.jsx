@@ -49,7 +49,6 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
     setRows(rows.filter((_, i) => i !== index))
   }
 
-  // Smart Clipboard Engine: Auto-calculates fields, splits rows, ignores junk column info
   const handleClipboardParse = () => {
     if (!clipboardData.trim()) return toast.error('Paste raw dataset text blocks first')
 
@@ -61,10 +60,8 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
       let targetIndex = -1
 
       if (requirePhone) {
-        // Find first column matching a phone digit signature sequence
         targetIndex = components.findIndex(c => /^\+?\d[\d\s-]{6,14}$/.test(c.replace(/\D/g, '')))
       } else {
-        // Find first column matching a raw email structure signature
         targetIndex = components.findIndex(c => EMAIL_RE.test(c))
       }
 
@@ -76,7 +73,7 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
           target: targetVal,
           name: restOfData[0] || '',
           company: restOfData[1] || '',
-          businessDesc: restOfData.slice(2).join(' ') || '' // Captures trailing items as details, drops unmapped junk
+          businessDesc: restOfData.slice(2).join(' ') || ''
         })
       }
     })
@@ -92,7 +89,6 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
   }
 
   const handleBatchSubmit = async () => {
-    // Basic structural pre-validation filtering
     const validRows = rows.filter(r => {
       if (requirePhone) return normalizePhone(r.target).length >= 10
       return r.target.includes('@') && EMAIL_RE.test(r.target)
@@ -159,18 +155,19 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
 
       {showClipboard && (
         <div className="p-2.5 bg-blue-50/40 border border-blue-200 rounded-xl space-y-2 fade-up">
-          <textarea value={clipboardData} onChange={e => setRawClipboardData(e.target.value)} className="textarea h-20 text-xs font-mono bg-white placeholder-slate-400" placeholder={requirePhone ? "Paste spreadsheet lines directly here...\n9876543210 \t John Smith \t Acme Corp \t Tech Lead\n+918887776655 \t Jane Doe \t Beta Industries" : "Paste spreadsheet lines directly here...\njohn@acme.com \t John Smith \t Acme Corp\njane@beta.com \t Jane Doe \t Beta Industries"} />
+          <textarea value={clipboardData} onChange={e => setRawClipboardData(e.target.value)} className="textarea h-20 text-xs font-mono bg-white placeholder-slate-400" placeholder={requirePhone ? "Paste spreadsheet lines directly here...\n9876543210 \t John Smith \t Acme Corp\n+918887776655 \t Jane Doe \t Beta Industries" : "Paste spreadsheet lines directly here...\john@acme.com \t John Smith \t Acme Corp"} />
           <button type="button" onClick={handleClipboardParse} className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-lg py-1 font-bold text-xs transition-colors shadow-2xs">Parse and Populate Layout Matrices</button>
         </div>
       )}
 
-      <div className="space-y-2.5 max-h-60 overflow-y-auto pr-0.5">
+      {/* Upgraded View height container constraint grid */}
+      <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1 border-b border-dashed pb-2">
         {rows.map((row, index) => (
-          <div key={index} className="p-3 bg-slate-50/50 border border-slate-200 rounded-xl space-y-2 fade-up relative">
+          <div key={index} className="p-3 bg-slate-50/50 border border-slate-200 rounded-xl space-y-2 fade-up relative shadow-2xs">
             <div className="flex justify-between items-center">
-              <span className="text-[9px] font-black text-slate-400 uppercase">Target Identity Record #{index + 1}</span>
+              <span className="text-[10px] font-black text-slate-500 bg-slate-200/60 px-1.5 py-0.5 rounded-md">User Entry #{index + 1}</span>
               <button type="button" onClick={() => handleRemoveRow(index)} className="text-red-500 hover:text-red-700 text-xs font-bold transition-colors">
-                {rows.length === 1 ? 'Reset' : 'Remove'}
+                {rows.length === 1 ? 'Reset fields' : '❌ Remove User'}
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
@@ -183,11 +180,12 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
         ))}
       </div>
 
+      {/* Persistent Button Action Footer Group */}
       <div className="flex gap-2 pt-1">
-        <button type="button" onClick={handleAddRow} className="flex-1 py-1.5 border border-dashed border-slate-300 text-slate-500 hover:border-slate-800 hover:text-slate-800 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1">
-          <Plus size={11} /> Append Clean Data Row
+        <button type="button" onClick={handleAddRow} className="flex-1 py-2 border-2 border-dashed border-slate-300 text-slate-600 hover:border-slate-800 hover:text-slate-800 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 bg-white">
+          <Plus size={13} /> ➕ Add Another User Row
         </button>
-        <button type="button" disabled={loading} onClick={handleBatchSubmit} className="flex-1 bg-slate-900 hover:bg-slate-800 text-white rounded-xl py-1.5 font-bold text-xs transition-all flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs">
+        <button type="button" disabled={loading} onClick={handleBatchSubmit} className="flex-1 bg-slate-900 hover:bg-slate-800 text-white rounded-xl py-2 font-bold text-xs transition-all flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs">
           {loading ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Commit Batch Matrix
         </button>
       </div>
