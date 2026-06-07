@@ -1,10 +1,7 @@
 /**
  * LeadSelector — reusable lead search + add panel
  * Upgraded to universally support smart batch array matrices (Email / WhatsApp / SMS)
- * Props:
- *   selected: Map<id, lead>
- *   onChange: (newMap) => void
- *   requirePhone: bool — toggles phone/WhatsApp architecture layout matrix mode
+ * Enforces strict channel deduplication and accurate multi-row object extraction mappings.
  */
 import { useState, useRef, useCallback } from 'react'
 import {
@@ -22,7 +19,7 @@ function normalizePhone(phone) {
   return digits
 }
 
-// ── Upgraded Smart Insertion Panel (Handles Multi-Rows + Sheet Auto-Fill) ───────
+// ── Upgraded Smart Insertion Panel ───────────────────────────────────────────
 function SmartInsertionPanel({ onAdded, requirePhone }) {
   const [rows, setRows] = useState([
     { target: '', name: '', company: '', businessDesc: '' }
@@ -155,12 +152,11 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
 
       {showClipboard && (
         <div className="p-2.5 bg-blue-50/40 border border-blue-200 rounded-xl space-y-2 fade-up">
-          <textarea value={clipboardData} onChange={e => setRawClipboardData(e.target.value)} className="textarea h-20 text-xs font-mono bg-white placeholder-slate-400" placeholder={requirePhone ? "Paste spreadsheet lines directly here...\n9876543210 \t John Smith \t Acme Corp\n+918887776655 \t Jane Doe \t Beta Industries" : "Paste spreadsheet lines directly here...\john@acme.com \t John Smith \t Acme Corp"} />
+          <textarea value={clipboardData} onChange={e => setRawClipboardData(e.target.value)} className="textarea h-20 text-xs font-mono bg-white placeholder-slate-400" placeholder={requirePhone ? "Paste spreadsheet lines directly here...\n9876543210 \t John Smith \t Acme Corp\n+918887776655 \t Jane Doe \t Beta Industries" : "Paste spreadsheet lines directly here...\njohn@acme.com \t John Smith \t Acme Corp"} />
           <button type="button" onClick={handleClipboardParse} className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-lg py-1 font-bold text-xs transition-colors shadow-2xs">Parse and Populate Layout Matrices</button>
         </div>
       )}
 
-      {/* Upgraded View height container constraint grid */}
       <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1 border-b border-dashed pb-2">
         {rows.map((row, index) => (
           <div key={index} className="p-3 bg-slate-50/50 border border-slate-200 rounded-xl space-y-2 fade-up relative shadow-2xs">
@@ -180,7 +176,6 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
         ))}
       </div>
 
-      {/* Persistent Button Action Footer Group */}
       <div className="flex gap-2 pt-1">
         <button type="button" onClick={handleAddRow} className="flex-1 py-2 border-2 border-dashed border-slate-300 text-slate-600 hover:border-slate-800 hover:text-slate-800 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 bg-white">
           <Plus size={13} /> ➕ Add Another User Row
@@ -308,11 +303,14 @@ export default function LeadSelector({ selected, onChange, requirePhone = false 
     if (!query.trim()) return
     setSearching(true)
     try {
-      const { data } = await leadsApi.search(query, 50)
+      // ✅ Real Real Change: Pass dynamic context to sync with leads.py SQL exclusions
+      const currentChannel = requirePhone ? 'whatsapp' : 'email'
+      const { data } = await leadsApi.search(query, 50, currentChannel)
+      
       let leads = data.leads || data || []
       if (requirePhone) leads = leads.filter(l => l.phone)
       setResults(leads)
-      if (leads.length === 0) toast('No valid targets matched schema filter attributes')
+      if (leads.length === 0) toast('All matching targets have already been contacted!')
     } catch { 
       toast.error('Index database routing timeout') 
     } finally { 
@@ -335,14 +333,25 @@ export default function LeadSelector({ selected, onChange, requirePhone = false 
 
   const selectAll = () => {
     const next = new Map(selected)
-    results.forEach(l => next.set(l.id, l))
+    // ✅ Real Real Change: Re-maps entire database object structures to prevent variable injection crashes
+    results.forEach(l => {
+      next.set(l.id, {
+        id: l.id,
+        phone: l.phone,
+        email: l.email,
+        contact_name: l.contact_name,
+        company_name: l.company_name,
+        business_details: l.business_details || l.business_description || ''
+      })
+    })
     onChange(next)
+    toast.success(`Added all ${results.length} nodes to selection matrix!`)
   }
 
   const PANELS = [
     { id: 'upload', icon: Upload,        label: 'Upload File' },
     { id: 'scan',   icon: CreditCard,    label: 'Scan Card' },
-    { id: 'smart_insert', icon: ClipboardList, label: 'Smart Insertion Grid' }, // ◄── Swapped legacy single/bulk tabs with integrated Smart Panel
+    { id: 'smart_insert', icon: ClipboardList, label: 'Smart Insertion Grid' },
   ]
 
   return (
@@ -398,7 +407,7 @@ export default function LeadSelector({ selected, onChange, requirePhone = false 
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <p className="text-[10px] text-slate-400 font-bold uppercase">{results.length} active nodes loaded</p>
-            <button onClick={selectAll} className="text-xs text-slate-900 font-bold hover:underline">Select entire array</button>
+            <button onClick={selectAll} className="text-xs text-blue-600 font-bold hover:underline">Select entire array (Select All)</button>
           </div>
           <div className="max-h-48 overflow-y-auto space-y-1 border p-1 rounded-xl bg-slate-50/50">
             {results.map(lead => (
