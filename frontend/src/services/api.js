@@ -36,7 +36,10 @@ export const profileApi = {
 
 // ── Leads ─────────────────────────────────────────────────────────────────────
 export const leadsApi = {
-  search:     (q, limit = 50) => api.get('/leads/search', { params: { q, limit } }),
+  // ✅ Upgraded: Transmits channel context and dual-validation requirements to leads.py query parser
+  search: (q, limit = 50, channelContext = 'email', requiredChannels = 'email') => 
+    api.get('/leads/search', { params: { q, limit, channel_context: channelContext, required_channels: requiredChannels } }),
+  
   addSingle:  (data)          => api.post('/leads/single', data),
   addBulk:    (raw_text)      => api.post('/leads/bulk', { raw_text }),
   uploadFile: (file) => {
@@ -59,6 +62,12 @@ export const campaignApi = {
   preview: (data) => api.post('/campaigns/preview', data),
 }
 
+// ── Omnichannel Campaigns (NEW Layer) ─────────────────────────────────────────
+export const omniApi = {
+  create: (data) => api.post('/omni-campaigns/create', data),
+  list:   ()     => api.get('/omni-campaigns/list'),
+}
+
 // ── Replies ───────────────────────────────────────────────────────────────────
 export const repliesApi = {
   inbox:  (status, channel) => api.get('/replies/inbox',  { params: { ...(status ? { status } : {}), ...(channel ? { channel } : {}) } }),
@@ -67,6 +76,7 @@ export const repliesApi = {
   respond: (id, data)       => api.post(`/replies/${id}/respond`, data),
   poll:    ()               => api.post('/replies/poll'),
 }
+
 // ── WhatsApp ──────────────────────────────────────────────────────────────────
 export const waApi = {
   status:         ()      => api.get('/whatsapp/status'),

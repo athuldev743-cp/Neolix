@@ -2,11 +2,11 @@ import { useState, useEffect, useContext } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Mail, Smartphone, Send, Inbox, MessageSquare,
-  ArrowRight, Loader2, Zap, TrendingUp, CheckCircle2,
-  Clock, WifiOff, Wifi
+  ArrowRight, Loader2, Zap, WifiOff, Plus
 } from 'lucide-react'
 import { campaignApi, repliesApi, waApi } from '../services/api'
 import { ProfileContext } from '../App'
+import OmniCampaignCreate from '../components/OmniCampaignCreate'
 
 function StatRow({ label, value, color = 'text-slate-800', loading }) {
   return (
@@ -20,10 +20,9 @@ function StatRow({ label, value, color = 'text-slate-800', loading }) {
   )
 }
 
-function ChannelCard({ icon: Icon, title, color, to, loading, stats, connected, connectionEl }) {
+function ChannelCard({ icon: Icon, title, color, to, loading, stats, connectionEl }) {
   return (
     <div className="card p-0 overflow-hidden">
-      {/* Header */}
       <div className={`flex items-center justify-between px-5 py-4 border-b border-slate-100 ${color}`}>
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-xl bg-white/60 flex items-center justify-center">
@@ -34,17 +33,14 @@ function ChannelCard({ icon: Icon, title, color, to, loading, stats, connected, 
         {connectionEl}
       </div>
 
-      {/* Stats */}
       <div className="px-5 py-1">
         {stats.map(s => (
           <StatRow key={s.label} {...s} loading={loading} />
         ))}
       </div>
 
-      {/* Footer link */}
       <div className="px-5 py-3 border-t border-slate-100">
-        <Link to={to}
-          className="flex items-center justify-between text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors group">
+        <Link to={to} className="flex items-center justify-between text-sm font-semibold text-blue-600 hover:text-blue-700 transition-colors group">
           Open {title}
           <ArrowRight size={15} className="group-hover:translate-x-0.5 transition-transform" />
         </Link>
@@ -59,57 +55,73 @@ export default function DashboardPage() {
   const [emailStats, setEmail]  = useState(null)
   const [waStats, setWA]        = useState(null)
   const [waConnected, setWACon] = useState(false)
+  
+  // ✅ Added Dashboard layout view orchestration states
+  const [dashView, setDashView] = useState('summary') // summary | create_omni
+
+  const fetchDashboardMetrics = async () => {
+    try {
+      const [campRes, inboxRes, sentRes, waRes, waListRes] = await Promise.allSettled([
+        campaignApi.list(),
+        repliesApi.inbox('unread'),
+        repliesApi.inbox('responded'),
+        waApi.status(),
+        waApi.campaignList(),
+      ])
+
+      const camps    = campRes.status    === 'fulfilled' ? campRes.value.data    : []
+      const unread   = inboxRes.status   === 'fulfilled' ? inboxRes.value.data   : []
+      const replied  = sentRes.status    === 'fulfilled' ? sentRes.value.data    : []
+      const totalSent   = camps.reduce((s, c) => s + (c.sent   || 0), 0)
+      const totalFailed = camps.reduce((s, c) => s + (c.failed || 0), 0)
+      const running     = camps.filter(c => c.status === 'running').length
+      setEmail({ totalSent, totalFailed, running, unread: unread.length, replied: replied.length, campaigns: camps.length })
+
+      const wa     = waRes.status    === 'fulfilled' ? waRes.value.data    : {}
+      const waCamp = waListRes.status === 'fulfilled' ? waListRes.value.data : []
+      const waSent = waCamp.reduce((s, c) => s + (c.sent || 0), 0)
+      setWACon(wa.connected || false)
+      setWA({ connected: wa.connected, campaigns: waCamp.length, sent: waSent })
+    } catch (e) {
+      console.error(e)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [campRes, inboxRes, sentRes, waRes, waListRes] = await Promise.allSettled([
-          campaignApi.list(),
-          repliesApi.inbox('unread'),
-          repliesApi.inbox('responded'),
-          waApi.status(),
-          waApi.campaignList(),
-        ])
-
-        // Email stats
-        const camps    = campRes.status    === 'fulfilled' ? campRes.value.data    : []
-        const unread   = inboxRes.status   === 'fulfilled' ? inboxRes.value.data   : []
-        const replied  = sentRes.status    === 'fulfilled' ? sentRes.value.data    : []
-        const totalSent   = camps.reduce((s, c) => s + (c.sent   || 0), 0)
-        const totalFailed = camps.reduce((s, c) => s + (c.failed || 0), 0)
-        const running     = camps.filter(c => c.status === 'running').length
-        setEmail({ totalSent, totalFailed, running, unread: unread.length, replied: replied.length, campaigns: camps.length })
-
-        // WA stats
-        const wa     = waRes.status    === 'fulfilled' ? waRes.value.data    : {}
-        const waCamp = waListRes.status === 'fulfilled' ? waListRes.value.data : []
-        const waSent = waCamp.reduce((s, c) => s + (c.sent || 0), 0)
-        setWACon(wa.connected || false)
-        setWA({ connected: wa.connected, campaigns: waCamp.length, sent: waSent })
-      } catch (e) {
-        console.error(e)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
+    fetchDashboardMetrics()
   }, [])
 
   const hour = new Date().getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
   const firstName = profile?.full_name?.split(' ')[0] || ''
 
+  if (dashView === 'create_omni') {
+    return (
+      <div className="max-w-5xl mx-auto p-2">
+        <OmniCampaignCreate onBack={() => setDashView('summary')} onDone={() => { setDashView('summary'); fetchDashboardMetrics(); }} />
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-3xl">
-      {/* Greeting */}
-      <div className="mb-7">
-        <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-          {greeting}{firstName ? `, ${firstName}` : ''} 👋
-        </h1>
-        <p className="text-sm text-slate-400 mt-1">Your outreach overview</p>
+      {/* Upper Title Header Panel with Global Action Triggers */}
+      <div className="flex items-center justify-between mb-7">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+            {greeting}{firstName ? `, ${firstName}` : ''} 👋
+          </h1>
+          <p className="text-sm text-slate-400 mt-1">Your outreach overview</p>
+        </div>
+        
+        {/* ✅ Global Omnichannel Campaign Launch Button */}
+        <button onClick={() => setDashView('create_omni')} className="btn-primary text-xs font-black shadow-xs py-2 px-3.5 flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 border-0">
+          <Plus size={15} strokeWidth={2.5} /> Launch 9-Day Omni Campaign
+        </button>
       </div>
 
-      {/* Profile nudge */}
       {!loading && profile && !profile.value_proposition && (
         <div className="msg-info mb-6">
           <Zap size={16} className="text-blue-500 flex-shrink-0" />
@@ -120,9 +132,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Two channel cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        {/* Email */}
         <ChannelCard
           icon={Mail}
           title="Email"
@@ -142,7 +152,6 @@ export default function DashboardPage() {
           ]}
         />
 
-        {/* WhatsApp */}
         <ChannelCard
           icon={Smartphone}
           title="WhatsApp"
@@ -166,10 +175,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Quick actions */}
       <div className="mt-6 grid grid-cols-2 gap-4">
-        <Link to="/email"
-          className="card-hover p-4 flex items-center gap-3 group">
+        <Link to="/email" className="card-hover p-4 flex items-center gap-3 group">
           <div className="w-9 h-9 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">
             <Send size={17} className="text-blue-600" />
           </div>
@@ -180,8 +187,7 @@ export default function DashboardPage() {
           <ArrowRight size={15} className="text-slate-300 ml-auto group-hover:text-slate-500 transition-colors" />
         </Link>
 
-        <Link to="/whatsapp"
-          className="card-hover p-4 flex items-center gap-3 group">
+        <Link to="/whatsapp" className="card-hover p-4 flex items-center gap-3 group">
           <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center flex-shrink-0">
             <MessageSquare size={17} className="text-emerald-600" />
           </div>

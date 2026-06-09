@@ -1,12 +1,15 @@
 /**
- * LeadSelector — reusable lead search + add panel
- * Upgraded to universally support smart batch array matrices (Email / WhatsApp / SMS)
- * Enforces strict channel deduplication and accurate multi-row object extraction mappings.
+ * LeadSelector — Universal Reusable Lead Search + Deduplication Add Panel
+ * Upgraded to dynamically filter lead validation matrices based on active campaign channels.
+ * * Props:
+ * selected: Map<id, lead>
+ * onChange: (newMap) => void
+ * requiredChannels: String — comma separated fields to enforce (e.g. "email" or "email,whatsapp")
  */
 import { useState, useRef, useCallback } from 'react'
 import {
-  Search, Upload, CreditCard, Mail, ClipboardList,
-  X, Check, Plus, Loader2, Smartphone
+  Search, Upload, CreditCard, ClipboardList,
+  X, Check, Plus, Loader2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { leadsApi } from '../services/api'
@@ -19,14 +22,14 @@ function normalizePhone(phone) {
   return digits
 }
 
-// ── Upgraded Smart Insertion Panel ───────────────────────────────────────────
-function SmartInsertionPanel({ onAdded, requirePhone }) {
-  const [rows, setRows] = useState([
-    { target: '', name: '', company: '', businessDesc: '' }
-  ])
+// ── Smart Spreadsheet Paste Ingestion Panel ──────────────────────────────────
+function SmartInsertionPanel({ onAdded, requiredChannels }) {
+  const [rows, setRows] = useState([{ target: '', name: '', company: '', businessDesc: '' }])
   const [showClipboard, setShowClipboard] = useState(false)
   const [clipboardData, setRawClipboardData] = useState('')
   const [loading, setLoading] = useState(false)
+
+  const isPhoneRequired = requiredChannels.includes('whatsapp') || requiredChannels.includes('sms')
 
   const handleInputChange = (index, field, value) => {
     const updatedRows = [...rows]
@@ -56,7 +59,7 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
       const components = line.split(/[|\t,;]/).map(c => c.trim()).filter(Boolean)
       let targetIndex = -1
 
-      if (requirePhone) {
+      if (isPhoneRequired) {
         targetIndex = components.findIndex(c => /^\+?\d[\d\s-]{6,14}$/.test(c.replace(/\D/g, '')))
       } else {
         targetIndex = components.findIndex(c => EMAIL_RE.test(c))
@@ -76,23 +79,23 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
     })
 
     if (dynamicallyParsedRows.length === 0) {
-      return toast.error(requirePhone ? 'Could not map structural phone data alignments' : 'Could not map structural email data alignments')
+      return toast.error(isPhoneRequired ? 'Could not map matching mobile data rows' : 'Could not map matching email data rows')
     }
 
     setRows(dynamicallyParsedRows)
     setRawClipboardData('')
     setShowClipboard(false)
-    toast.success(`Instantly mapped and generated ${dynamicallyParsedRows.length} matrix entry fields!`)
+    toast.success(`Populated ${dynamicallyParsedRows.length} inline matrix fields!`)
   }
 
   const handleBatchSubmit = async () => {
     const validRows = rows.filter(r => {
-      if (requirePhone) return normalizePhone(r.target).length >= 10
+      if (isPhoneRequired) return normalizePhone(r.target).length >= 10
       return r.target.includes('@') && EMAIL_RE.test(r.target)
     })
 
     if (validRows.length === 0) {
-      return toast.error(requirePhone ? 'Provide at least one valid 10-digit phone row' : 'Provide at least one valid email row')
+      return toast.error(isPhoneRequired ? 'Provide at least one valid phone row' : 'Provide at least one valid email row')
     }
 
     setLoading(true)
@@ -106,10 +109,10 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
             contact_name: row.name,
             company_name: row.company,
             business_details: row.businessDesc,
-            source: requirePhone ? 'whatsapp_smart_batch' : 'email_smart_batch'
+            source: isPhoneRequired ? 'whatsapp_smart_batch' : 'email_smart_batch'
           }
 
-          if (requirePhone) {
+          if (isPhoneRequired) {
             const phone = normalizePhone(row.target)
             payload.phone = phone
             payload.email = `${phone}@neolix-channel.local`
@@ -126,16 +129,16 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
             }
             processedCount++
           } catch (e) {
-            console.error('Cascading node insert rejected', e)
+            console.error('Database insertion error:', e)
           }
         })
       )
 
       if (aggregatedIds.length > 0) onAdded(aggregatedIds)
-      toast.success(`Successfully committed batch: synced ${processedCount} recipient nodes!`)
+      toast.success(`Successfully registered ${processedCount} new contacts!`)
       setRows([{ target: '', name: '', company: '', businessDesc: '' }])
     } catch {
-      toast.error('Batch registration matrix pipeline failure')
+      toast.error('Batch registration pipeline error')
     } finally {
       setLoading(false)
     }
@@ -145,42 +148,42 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
     <div className="p-3 space-y-3">
       <div className="flex justify-between items-center bg-slate-50 p-2 rounded-xl border border-slate-100">
         <span className="text-[10px] font-black text-slate-400 uppercase tracking-wide">Automated Excel Grid Integration</span>
-        <button type="button" onClick={() => setShowClipboard(!showClipboard)} className="text-[11px] font-bold text-blue-600 hover:text-blue-700 bg-white border px-2.5 py-1 rounded-lg transition-all shadow-3xs">
+        <button type="button" onClick={() => setShowClipboard(!showClipboard)} className="text-[11px] font-bold text-blue-600 bg-white border px-2.5 py-1 rounded-lg transition-all shadow-3xs">
           {showClipboard ? 'Close Ingestion Box' : '⚡ Auto-Fill Spreadsheet Block'}
         </button>
       </div>
 
       {showClipboard && (
         <div className="p-2.5 bg-blue-50/40 border border-blue-200 rounded-xl space-y-2 fade-up">
-          <textarea value={clipboardData} onChange={e => setRawClipboardData(e.target.value)} className="textarea h-20 text-xs font-mono bg-white placeholder-slate-400" placeholder={requirePhone ? "Paste spreadsheet lines directly here...\n9876543210 \t John Smith \t Acme Corp\n+918887776655 \t Jane Doe \t Beta Industries" : "Paste spreadsheet lines directly here...\njohn@acme.com \t John Smith \t Acme Corp"} />
-          <button type="button" onClick={handleClipboardParse} className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-lg py-1 font-bold text-xs transition-colors shadow-2xs">Parse and Populate Layout Matrices</button>
+          <textarea value={clipboardData} onChange={e => setRawClipboardData(e.target.value)} className="textarea h-20 text-xs font-mono bg-white placeholder-slate-400" placeholder={isPhoneRequired ? "9876543210 \t John Smith \t Acme Corp" : "john@acme.com \t John Smith \t Acme Corp"} />
+          <button type="button" onClick={handleClipboardParse} className="w-full bg-blue-600 text-white rounded-lg py-1 font-bold text-xs">Parse and Populate Layout Matrices</button>
         </div>
       )}
 
-      <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1 border-b border-dashed pb-2">
+      <div className="space-y-3 max-h-64 overflow-y-auto pr-1 border-b border-dashed pb-2">
         {rows.map((row, index) => (
-          <div key={index} className="p-3 bg-slate-50/50 border border-slate-200 rounded-xl space-y-2 fade-up relative shadow-2xs">
+          <div key={index} className="p-3 bg-slate-50/50 border border-slate-200 rounded-xl space-y-2 relative shadow-2xs">
             <div className="flex justify-between items-center">
               <span className="text-[10px] font-black text-slate-500 bg-slate-200/60 px-1.5 py-0.5 rounded-md">User Entry #{index + 1}</span>
-              <button type="button" onClick={() => handleRemoveRow(index)} className="text-red-500 hover:text-red-700 text-xs font-bold transition-colors">
-                {rows.length === 1 ? 'Reset fields' : '❌ Remove User'}
+              <button type="button" onClick={() => handleRemoveRow(index)} className="text-red-500 text-xs font-bold">
+                {rows.length === 1 ? 'Reset fields' : '❌ Remove'}
               </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <input required className="input text-xs bg-white" type={requirePhone ? 'tel' : 'email'} placeholder={requirePhone ? 'Mobile Number *' : 'Email Address *'} value={row.target} onChange={e => handleInputChange(index, 'target', e.target.value)} />
+              <input required className="input text-xs bg-white" type={isPhoneRequired ? 'tel' : 'email'} placeholder={isPhoneRequired ? 'Mobile Number *' : 'Email Address *'} value={row.target} onChange={e => handleInputChange(index, 'target', e.target.value)} />
               <input className="input text-xs bg-white" placeholder="Contact Name" value={row.name} onChange={e => handleInputChange(index, 'name', e.target.value)} />
-              <input className="input text-xs bg-white" placeholder="Company/Organization" value={row.company} onChange={e => handleInputChange(index, 'company', e.target.value)} />
+              <input className="input text-xs bg-white" placeholder="Company" value={row.company} onChange={e => handleInputChange(index, 'company', e.target.value)} />
             </div>
-            <textarea className="textarea h-12 text-xs bg-white resize-none" placeholder="AI Personalization Custom Context Details String Parameters..." value={row.businessDesc} onChange={e => handleInputChange(index, 'businessDesc', e.target.value)} />
+            <textarea className="textarea h-12 text-xs bg-white resize-none" placeholder="AI Personalization Custom Context Parameters..." value={row.businessDesc} onChange={e => handleInputChange(index, 'businessDesc', e.target.value)} />
           </div>
         ))}
       </div>
 
       <div className="flex gap-2 pt-1">
-        <button type="button" onClick={handleAddRow} className="flex-1 py-2 border-2 border-dashed border-slate-300 text-slate-600 hover:border-slate-800 hover:text-slate-800 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1 bg-white">
-          <Plus size={13} /> ➕ Add Another User Row
+        <button type="button" onClick={handleAddRow} className="flex-1 py-2 border-2 border-dashed border-slate-300 text-slate-600 rounded-xl font-bold text-xs flex items-center justify-center gap-1 bg-white">
+          <Plus size={13} /> ➕ Add Row
         </button>
-        <button type="button" disabled={loading} onClick={handleBatchSubmit} className="flex-1 bg-slate-900 hover:bg-slate-800 text-white rounded-xl py-2 font-bold text-xs transition-all flex items-center justify-center gap-1 disabled:opacity-40 shadow-xs">
+        <button type="button" disabled={loading} onClick={handleBatchSubmit} className="flex-1 bg-slate-900 text-white rounded-xl py-2 font-bold text-xs flex items-center justify-center gap-1 disabled:opacity-40">
           {loading ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />} Commit Batch Matrix
         </button>
       </div>
@@ -188,7 +191,6 @@ function SmartInsertionPanel({ onAdded, requirePhone }) {
   )
 }
 
-// ── Multi-format file parsing block architecture ──────────────────────────────
 function UploadPanel({ onAdded }) {
   const [loading, setLoading] = useState(false)
   const ref = useRef()
@@ -197,10 +199,10 @@ function UploadPanel({ onAdded }) {
     setLoading(true)
     try {
       const { data } = await leadsApi.uploadFile(file)
-      toast.success(`Leads extracted from file asset architecture`)
+      toast.success('Leads extracted from file asset dataset')
       onAdded(data.lead_ids || [])
     } catch { 
-      toast.error('Upload parser exception structural reject') 
+      toast.error('Upload parser file error') 
     } finally { 
       setLoading(false) 
     }
@@ -208,33 +210,28 @@ function UploadPanel({ onAdded }) {
 
   return (
     <div className="p-3">
-      <div onClick={() => ref.current.click()}
-        onDragOver={e => e.preventDefault()}
-        onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handle(f) }}
-        className="border-2 border-dashed border-slate-200 rounded-xl p-5 text-center cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-all group">
-        {loading ? (
-          <Loader2 size={20} className="animate-spin mx-auto text-slate-800" />
-        ) : (
+      <div onClick={() => ref.current.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handle(f) }} className="border-2 border-dashed border-slate-200 rounded-xl p-5 text-center cursor-pointer hover:bg-slate-50 transition-all group">
+        {loading ? <Loader2 size={20} className="animate-spin mx-auto text-slate-800" /> : (
           <>
             <Upload size={20} className="mx-auto mb-1.5 text-slate-300 group-hover:text-slate-800" />
-            <p className="text-xs font-medium text-slate-600">Click or drop data sheets</p>
+            <p className="text-xs font-medium text-slate-600">Click or drop sheets</p>
             <p className="text-[10px] text-slate-400 mt-0.5">CSV, XLSX, PDF, TXT, JSON</p>
           </>
         )}
       </div>
-      <input ref={ref} type="file" className="hidden" accept=".csv,.xlsx,.xls,.txt,.pdf,.json"
-        onChange={e => e.target.files[0] && handle(e.target.files[0])} />
+      <input ref={ref} type="file" className="hidden" accept=".csv,.xlsx,.xls,.txt,.pdf,.json" onChange={e => e.target.files[0] && handle(e.target.files[0])} />
     </div>
   )
 }
 
-// ── OCR card engine link architecture maps ─────────────────────────────────────
-function ScanPanel({ onAdded, requirePhone }) {
+function ScanPanel({ onAdded, requiredChannels }) {
   const [loading, setLoading] = useState(false)
   const [streaming, setStreaming] = useState(false)
   const videoRef = useRef()
   const canvasRef = useRef()
   const streamRef = useRef()
+
+  const isPhoneRequired = requiredChannels.includes('whatsapp') || requiredChannels.includes('sms')
 
   const openCamera = async () => {
     try {
@@ -255,10 +252,10 @@ function ScanPanel({ onAdded, requirePhone }) {
     try {
       const { data } = await leadsApi.scanCard(b64)
       if (data.total_found > 0 || data.phone || data.email) {
-        toast.success(`Card metrics logged accurately into nodes`)
+        toast.success('Card data extracted accurately')
         onAdded(data.lead_ids || [])
       } else { 
-        toast.error(requirePhone ? 'No matching phone sequence verified' : 'No matching email sequence verified') 
+        toast.error(isPhoneRequired ? 'No valid mobile phone number found' : 'No valid email address found') 
       }
     } catch { 
       toast.error('AI vision system error') 
@@ -270,21 +267,20 @@ function ScanPanel({ onAdded, requirePhone }) {
   return (
     <div className="p-3 space-y-2">
       {!streaming && !loading && (
-        <div onClick={openCamera}
-          className="border-2 border-dashed border-slate-200 rounded-xl p-5 text-center cursor-pointer hover:border-slate-400 hover:bg-slate-50 transition-all">
+        <div onClick={openCamera} className="border-2 border-dashed border-slate-200 rounded-xl p-5 text-center cursor-pointer hover:bg-slate-50 transition-all">
           <CreditCard size={20} className="mx-auto mb-1.5 text-slate-300" />
-          <p className="text-xs font-medium text-slate-600">Trigger OCR capture matrix module</p>
+          <p className="text-xs font-medium text-slate-600">Scan Hardware OCR Business Card</p>
         </div>
       )}
       {streaming && (
         <>
           <video ref={videoRef} autoPlay playsInline className="w-full rounded-xl border" />
-          <button onClick={capture} className="btn-primary w-full justify-center">Parse hardware viewport target</button>
+          <button onClick={capture} className="btn-primary w-full justify-center">Parse Viewport Frame Target</button>
         </>
       )}
       {loading && (
         <div className="flex items-center justify-center gap-2 py-4 text-xs text-slate-400">
-          <Loader2 size={14} className="animate-spin text-slate-800" /> Deconstructing physical asset arrays...
+          <Loader2 size={14} className="animate-spin" /> Deconstructing card text layout parameters...
         </div>
       )}
       <canvas ref={canvasRef} className="hidden" />
@@ -292,27 +288,28 @@ function ScanPanel({ onAdded, requirePhone }) {
   )
 }
 
-// ── Global Component Context ───────────────────────────────────────────────────
-export default function LeadSelector({ selected, onChange, requirePhone = false }) {
+// ── Master Export Component Context ──────────────────────────────────────────
+export default function LeadSelector({ selected, onChange, requiredChannels = 'email' }) {
   const [query, setQuery]           = useState('')
   const [results, setResults]       = useState([])
   const [searching, setSearching]   = useState(false)
   const [activePanel, setActivePanel] = useState(null)
 
+  const isPhoneRequired = requiredChannels.includes('whatsapp') || requiredChannels.includes('sms')
+
   const doSearch = async () => {
     if (!query.trim()) return
     setSearching(true)
     try {
-      // ✅ Real Real Change: Pass dynamic context to sync with leads.py SQL exclusions
-      const currentChannel = requirePhone ? 'whatsapp' : 'email'
-      const { data } = await leadsApi.search(query, 50, currentChannel)
+      // ✅ Pass active channels configuration layout masks straight to your updated database query filters
+      const activeContext = isPhoneRequired ? 'whatsapp' : 'email'
+      const { data } = await leadsApi.search(query, 50, activeContext, requiredChannels)
       
       let leads = data.leads || data || []
-      if (requirePhone) leads = leads.filter(l => l.phone)
       setResults(leads)
-      if (leads.length === 0) toast('All matching targets have already been contacted!')
+      if (leads.length === 0) toast('No uncontacted leads match your active channel requirements!')
     } catch { 
-      toast.error('Index database routing timeout') 
+      toast.error('Search index lookup timeout') 
     } finally { 
       setSearching(false) 
     }
@@ -333,7 +330,7 @@ export default function LeadSelector({ selected, onChange, requirePhone = false 
 
   const selectAll = () => {
     const next = new Map(selected)
-    // ✅ Real Real Change: Re-maps entire database object structures to prevent variable injection crashes
+    // ✅ Re-clones object properties correctly to prevent template injection errors later
     results.forEach(l => {
       next.set(l.id, {
         id: l.id,
@@ -345,7 +342,7 @@ export default function LeadSelector({ selected, onChange, requirePhone = false 
       })
     })
     onChange(next)
-    toast.success(`Added all ${results.length} nodes to selection matrix!`)
+    toast.success(`Selected all ${results.length} valid omnichannel leads!`)
   }
 
   const PANELS = [
@@ -363,7 +360,7 @@ export default function LeadSelector({ selected, onChange, requirePhone = false 
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && doSearch()}
-            placeholder={requirePhone ? 'Search parameters via mobile index...' : 'Search criteria over email database architecture...'}
+            placeholder={isPhoneRequired ? "Search parameters via mobile numbers index..." : "Search criteria over email handle indexes..."}
             className="flex-1 bg-transparent text-xs outline-none placeholder-slate-400"
           />
           {query && (
@@ -397,30 +394,27 @@ export default function LeadSelector({ selected, onChange, requirePhone = false 
               <X size={13} />
             </button>
           </div>
-          {activePanel === 'smart_insert' && <SmartInsertionPanel onAdded={handleAdded} requirePhone={requirePhone} />}
+          {activePanel === 'smart_insert' && <SmartInsertionPanel onAdded={handleAdded} requiredChannels={requiredChannels} />}
           {activePanel === 'upload' && <UploadPanel onAdded={handleAdded} />}
-          {activePanel === 'scan'   && <ScanPanel   onAdded={handleAdded} requirePhone={requirePhone} />}
+          {activePanel === 'scan'   && <ScanPanel   onAdded={handleAdded} requiredChannels={requiredChannels} />}
         </div>
       )}
 
       {results.length > 0 && (
         <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <p className="text-[10px] text-slate-400 font-bold uppercase">{results.length} active nodes loaded</p>
-            <button onClick={selectAll} className="text-xs text-blue-600 font-bold hover:underline">Select entire array (Select All)</button>
+            <p className="text-[10px] text-slate-400 font-bold uppercase">{results.length} matching entries found</p>
+            <button type="button" onClick={selectAll} className="text-xs text-blue-600 font-bold hover:underline">Select all matching leads</button>
           </div>
           <div className="max-h-48 overflow-y-auto space-y-1 border p-1 rounded-xl bg-slate-50/50">
             {results.map(lead => (
               <div key={lead.id} onClick={() => toggle(lead)}
                 className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-all ${selected.has(lead.id) ? 'bg-white border-slate-400 shadow-2xs' : 'bg-transparent border-transparent hover:bg-slate-100'}`}>
                 <div>
-                  <p className="font-bold text-slate-800">{lead.company_name || lead.contact_name || 'Anonymous Node'}</p>
+                  <p className="font-bold text-slate-800">{lead.company_name || lead.contact_name || 'Anonymous Contact'}</p>
                   <p className="text-slate-400 text-[11px]">
-                    {requirePhone ? `+${lead.phone}` : lead.email} {lead.city ? `· ${lead.city}` : ''}
+                    {lead.email || 'No Email'} · {lead.phone ? `+${lead.phone}` : 'No Phone'}
                   </p>
-                  {(lead.business_description || lead.business_details) && (
-                    <p className="text-[10px] text-slate-400 italic max-w-xs truncate mt-0.5">Ctx: {lead.business_description || lead.business_details}</p>
-                  )}
                 </div>
                 {selected.has(lead.id) && <Check size={14} className="text-slate-900" strokeWidth={3} />}
               </div>
