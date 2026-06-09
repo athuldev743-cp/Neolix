@@ -7,9 +7,63 @@ import EmailPage     from './pages/EmailPage'
 import WhatsAppPage  from './pages/WhatsAppPage'
 import SMSPage       from './pages/SMSPage' 
 import SettingsPage  from './pages/SettingsPage'
-import { profileApi, api } from './services/api' // ✅ Extracted the global api axios instance
+import { profileApi, api } from './services/api'
+import { LogIn, Sparkles, ShieldCheck } from 'lucide-react'
 
 export const ProfileContext = createContext(null)
+
+// ── 🔒 Clean, Modern Login Component Page ──────────────────────────────────
+function LoginPage() {
+  const handleGoogleLogin = () => {
+    const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://neolix-neolix-backend.hf.space/api/v1'
+    window.location.href = `${apiBaseUrl}/auth/google/login`
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center relative overflow-hidden px-4">
+      {/* Background Subtle Tech Ambient Glows */}
+      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 left-1/3 w-72 h-72 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-md card bg-slate-900 border border-slate-800/80 p-8 shadow-2xl relative z-10 rounded-2xl space-y-6">
+        {/* Brand Header */}
+        <div className="text-center space-y-2">
+          <div className="w-12 h-12 bg-gradient-to-tr from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center mx-auto text-xl shadow-lg shadow-blue-500/10">
+            ⚡
+          </div>
+          <h2 className="text-xl font-black text-slate-100 tracking-tight pt-1">Welcome to Neolix Hub</h2>
+          <p className="text-xs text-slate-400">Autonomous Omnichannel Sales & Outreach Orchestrator</p>
+        </div>
+
+        {/* Value Proposition Micro Bullet Badges */}
+        <div className="bg-slate-950/60 rounded-xl p-3 border border-slate-800/40 space-y-2.5">
+          <div className="flex items-center gap-2 text-[11px] text-slate-300">
+            <ShieldCheck size={14} className="text-blue-500 flex-shrink-0" />
+            <span>Isolated Multi-Tenant Security Sandbox Data Contracts</span>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] text-slate-300">
+            <Sparkles size={14} className="text-indigo-500 flex-shrink-0" />
+            <span>Frictionless Passwordless Direct Google API Integration</span>
+          </div>
+        </div>
+
+        {/* Action Button */}
+        <div className="pt-2">
+          <button
+            onClick={handleGoogleLogin}
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-3 px-4 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-600/10"
+          >
+            <LogIn size={14} strokeWidth={2.5} /> Sign in with Google Account
+          </button>
+        </div>
+
+        <div className="text-center">
+          <p className="text-[10px] text-slate-500 font-medium">Authorized Test Profiles & Developers Only</p>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function WakingUp() {
   const [dots, setDots] = useState('.')
@@ -53,7 +107,7 @@ export default function App() {
   const [waking,  setWaking]  = useState(false)
   const [activeUserEmail, setActiveUserEmail] = useState(() => localStorage.getItem('neolix_auth_email') || '')
 
-  // ✅ Global interceptor mutation: dynamically appends multi-tenant context signature headers
+  // Global request interceptor: Automatically drops the user's header matrix
   useEffect(() => {
     const requestInterceptor = api.interceptors.request.use((config) => {
       if (activeUserEmail) {
@@ -67,24 +121,24 @@ export default function App() {
     return () => api.interceptors.request.eject(requestInterceptor)
   }, [activeUserEmail])
 
-  // ✅ URL Sniffer Handler: Parses Google Console redirect success matrices cleanly on mount
+  // URL Sniffer Callback Handler
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search)
     const loginSuccess = urlParams.get('login_success')
     const emailPayload = urlParams.get('email')
 
     if (loginSuccess === 'true' && emailPayload) {
-      localStorage.setItem('neolix_auth_email', emailPayload.trim().lower())
-      setActiveUserEmail(emailPayload.trim().lower())
+      const cleanEmail = emailPayload.trim().toLowerCase()
+      localStorage.setItem('neolix_auth_email', cleanEmail)
+      setActiveUserEmail(cleanEmail)
       
-      // Strips query strings clean from visual viewpoint bounds to look secure and professional
+      // Clean url parameters out smoothly
       const cleanUrl = window.location.origin + window.location.pathname
       window.history.replaceState({}, document.title, cleanUrl)
     }
   }, [])
 
   const refreshProfile = useCallback(async () => {
-    // If no test user email has been assigned yet, bypass server checks to prevent 401 intercept drops
     if (!activeUserEmail) {
       setLoading(false)
       return
@@ -107,23 +161,13 @@ export default function App() {
     return () => clearTimeout(t)
   }, [refreshProfile, loading, activeUserEmail])
 
-  // Simple mock layout container wrapper prompting verification fallback if storage email tracking isn't live
+  // ✅ Route Protection Guard: Serve the login page first if context is unauthenticated
   if (!activeUserEmail) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 px-4 text-center">
-        <div className="w-16 h-16 bg-blue-500/10 border border-blue-500/20 rounded-2xl flex items-center justify-center text-2xl mb-4 shadow-sm animate-pulse">💎</div>
-        <h2 className="text-xl font-bold text-slate-100 tracking-tight">Welcome to Neolix Hub Hub</h2>
-        <p className="text-xs text-slate-400 max-w-xs mt-2 leading-relaxed">Please connect your test workspace workspace account via Google API validation strings to build context.</p>
-        <button 
-          onClick={() => {
-            const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://neolix-neolix-backend.hf.space/api/v1'
-            window.location.href = `${apiBaseUrl}/auth/google/login`
-          }}
-          className="mt-5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-2.5 px-6 font-bold text-xs shadow-md shadow-blue-600/10 transition-all"
-        >
-          Authorize Google Cloud User Account
-        </button>
-      </div>
+      <>
+        <Toaster position="top-right" />
+        <LoginPage />
+      </>
     )
   }
 
