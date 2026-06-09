@@ -143,21 +143,22 @@ const navigate = useNavigate();
 
 const saveProfile = async () => {
   setSaving(true);
+  console.log("Attempting to save profile with data:", form); // DEBUG: Open browser console (F12) to see this
+  
   try {
-    // 1. Send data to DB
-    await activeProfileApi.update(form);
+    const response = await activeProfileApi.update(form);
+    console.log("Save response:", response); // DEBUG: See if the server actually accepted the request
     
-    // 2. Fetch the updated profile to trigger the re-render in App.jsx
     await refreshProfile(); 
-    
-    // 3. Show feedback
     toast.success('Profile saved!');
+    setSaved(true);
+    setTimeout(() => setSaved(false), 3000);
     
-    // 4. Force navigation to dashboard
+    // Only navigate if the save was successful
     navigate('/'); 
   } catch (err) {
-    console.error(err);
-    toast.error('Failed to save settings.');
+    console.error("CRITICAL SAVE ERROR:", err.response?.data || err);
+    toast.error(err.response?.data?.detail || 'Failed to save settings. Check console.');
   } finally {
     setSaving(false);
   }
