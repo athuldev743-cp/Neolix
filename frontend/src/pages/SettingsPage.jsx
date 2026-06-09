@@ -1,7 +1,8 @@
 import { useState, useContext, useEffect } from 'react'
-import { User, Building2, Server, Sparkles, PenLine, Check, Loader2, Save, Mail, AlertTriangle, Info } from 'lucide-react'
+import { User, Building2, Sparkles, PenLine, Loader2, Save, Info } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useNavigate } from 'react-router-dom'
+import { ProfileContext } from '../App' 
 
 function Section({ title, icon: Icon, desc, children }) {
   return (
@@ -31,7 +32,7 @@ function F({ label, hint, children }) {
 }
 
 export default function SettingsPage() {
-  const { profile, refreshProfile } = useContext(ActiveProfileContext)
+  const { profile, refreshProfile } = useContext(ProfileContext)
   const navigate = useNavigate()
   const [form, setForm] = useState({})
   const [saving, setSaving] = useState(false)
@@ -45,7 +46,7 @@ export default function SettingsPage() {
   const saveProfile = async () => {
     setSaving(true)
     try {
-      await activeProfileApi.update(form)
+      await profileApi.update(form)
       await refreshProfile()
       toast.success('Configuration saved!')
       navigate('/')
@@ -65,30 +66,20 @@ export default function SettingsPage() {
 
       <Section title="Personal Identity" icon={User}>
         <div className="grid grid-cols-2 gap-4">
-          <F label="Full Name"><input className="input" value={form.full_name || ''} onChange={e => set('full_name', e.target.value)} placeholder="e.g. Athul Dev" /></F>
-          <F label="Job Title"><input className="input" value={form.designation || ''} onChange={e => set('designation', e.target.value)} placeholder="e.g. Founder" /></F>
-          <F label="Public Business Email"><input className="input" value={form.email || ''} onChange={e => set('email', e.target.value)} placeholder="admin@neolix.co" /></F>
-          <F label="Direct Phone"><input className="input" value={form.phone || ''} onChange={e => set('phone', e.target.value)} placeholder="+91 98765 43210" /></F>
+          <F label="Full Name"><input className="input" value={form.full_name || ''} onChange={e => set('full_name', e.target.value)} /></F>
+          <F label="Job Title"><input className="input" value={form.designation || ''} onChange={e => set('designation', e.target.value)} /></F>
         </div>
       </Section>
 
       <Section title="Company Details" icon={Building2}>
         <div className="space-y-4">
-          <F label="Company Name"><input className="input" value={form.company_name || ''} onChange={e => set('company_name', e.target.value)} placeholder="e.g. Neolix Hub" /></F>
-          <F label="Industry"><input className="input" value={form.industry || ''} onChange={e => set('industry', e.target.value)} placeholder="e.g. B2B SaaS" /></F>
-          <F label="Tagline"><input className="input" value={form.company_tagline || ''} onChange={e => set('company_tagline', e.target.value)} placeholder="e.g. Autonomous Sales" /></F>
+          <F label="Company Name"><input className="input" value={form.company_name || ''} onChange={e => set('company_name', e.target.value)} /></F>
+          <F label="Industry"><input className="input" value={form.industry || ''} onChange={e => set('industry', e.target.value)} /></F>
         </div>
       </Section>
 
       <Section title="Product Offering" icon={PenLine}>
-        <F label="Product Description" hint="Detailed description for the AI to pitch.">
-          <textarea className="textarea h-32" value={form.product_description || ''} onChange={e => set('product_description', e.target.value)} placeholder="e.g. Our AI platform helps..." />
-        </F>
-      </Section>
-
-      <Section title="AI Styling" icon={Sparkles}>
-        <F label="Intro Line"><textarea className="textarea h-16" value={form.intro_line || ''} onChange={e => set('intro_line', e.target.value)} placeholder="e.g. Hi there, I noticed..." /></F>
-        <F label="Value Prop"><textarea className="textarea h-24" value={form.value_proposition || ''} onChange={e => set('value_proposition', e.target.value)} placeholder="e.g. We solve X by doing Y..." /></F>
+        <F label="Product Description"><textarea className="textarea h-32" value={form.product_description || ''} onChange={e => set('product_description', e.target.value)} /></F>
       </Section>
 
       <div className="flex justify-end pt-6 border-t border-slate-800">

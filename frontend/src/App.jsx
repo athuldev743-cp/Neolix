@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useState, useEffect, useCallback, createContext } from 'react';
 import Layout from './components/layout/Layout';
@@ -10,15 +10,13 @@ import SettingsPage from './pages/SettingsPage';
 import { profileApi, api } from './services/api';
 import { Loader2 } from 'lucide-react';
 
+// EXPORTED: This allows SettingsPage to import it
 export const ProfileContext = createContext(null);
 
-// 1. Defined at top-level so all functions can see it
 const apiBaseUrl = 'https://neolix-neolix-backend.hf.space/api/v1';
 
-// ── LOGIN PAGE ───────────────────────────────────────────────────────────────
 function LoginPage() {
   const handleGoogleLogin = () => window.location.href = `${apiBaseUrl}/auth/google/login`;
-
   return (
     <div className="login-screen-container">
       <div className="login-card">
@@ -34,7 +32,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [activeUserEmail, setActiveUserEmail] = useState(() => localStorage.getItem('neolix_auth_email') || '');
 
-  // 2. Ensure Interceptor is always active
   useEffect(() => {
     const interceptor = api.interceptors.request.use((config) => {
       if (activeUserEmail) config.headers['X-User-Email'] = activeUserEmail;
@@ -43,7 +40,6 @@ export default function App() {
     return () => api.interceptors.request.eject(interceptor);
   }, [activeUserEmail]);
 
-  // Auth Sync
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const email = urlParams.get('email');
@@ -60,11 +56,8 @@ export default function App() {
     try {
       const { data } = await profileApi.get();
       setProfile(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   }, [activeUserEmail]);
 
   useEffect(() => { refreshProfile(); }, [refreshProfile]);
