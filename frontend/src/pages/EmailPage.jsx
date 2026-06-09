@@ -1,14 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Send, Inbox, RefreshCw, Plus, Loader2, ChevronLeft,
-  Eye, Zap, X, Check, CheckCheck, Search, Reply
+  Eye, Zap, X, Check, CheckCheck, Search, Reply, Edit3, Save, ArrowRight
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { campaignApi, repliesApi } from '../services/api'
+import { campaignApi, repliesApi, api } from '../services/api'
 import LeadSelector from '../components/LeadSelector'
 import { useUnreadReplies } from '../hooks/useUnreadReplies'
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const statusBadge = { running:'badge-blue', completed:'badge-green', queued:'badge-gray', failed:'badge-red', paused:'badge-orange' }
+const statusBadge = { 
+  generating: 'bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2.5 py-0.5 rounded-full text-[10px] font-bold animate-pulse',
+  running: 'badge-blue', 
+  completed: 'badge-green', 
+  queued: 'badge-gray', 
+  failed: 'badge-red', 
+  paused: 'badge-orange' 
+}
 
 function timeAgo(iso) {
   if (!iso) return '—'
@@ -21,7 +29,7 @@ function timeAgo(iso) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CAMPAIGNS
+// CAMPAIGNS LAYER
 // ═══════════════════════════════════════════════════════════
 
 // ── Campaign list ─────────────────────────────────────────
@@ -42,7 +50,7 @@ function CampaignList({ onCreate, onDetail }) {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Email Campaigns</h2>
-          <p className="text-sm text-slate-400 mt-0.5">AI-personalised outreach via SMTP</p>
+          <p className="text-sm text-slate-400 mt-0.5">Automated background pre-generation via multi-tenant profiles</p>
         </div>
         <div className="flex gap-2">
           <button onClick={load} className="btn-icon"><RefreshCw size={16} /></button>
@@ -65,7 +73,7 @@ function CampaignList({ onCreate, onDetail }) {
         {camps.map(c => {
           const pct = c.total_leads > 0 ? Math.round((c.sent / c.total_leads) * 100) : 0
           return (
-            <div key={c.id} onClick={() => onDetail(c.id)} className="card-hover p-5 flex items-center gap-4">
+            <div key={c.id} onClick={() => onDetail(c.id)} className="card-hover p-5 flex items-center gap-4 cursor-pointer">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <p className="font-semibold text-slate-900 truncate">{c.name}</p>
@@ -91,37 +99,102 @@ function CampaignList({ onCreate, onDetail }) {
   )
 }
 
-// ── Campaign detail ───────────────────────────────────────
+// ── Campaign Detail & Interactive Live Approvals ───────────────────────────
 function CampaignDetail({ id, onBack }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [activeItem, setActiveItem] = useState(null)
+  const [editedSubject, setEditedSubject] = useState('')
+  const [editedBody, setEditedBody] = useState('')
+  const [committingDraft, setCommittingDraft] = useState(false)
+  const [triggeringDeployment, setTriggeringDeployment] = useState(false)
 
   const load = async () => {
-    try { const { data: d } = await campaignApi.get(id); setData(d) }
-    catch { toast.error('Failed to load') } finally { setLoading(false) }
+    try {
+      const res = await api.get(`/campaigns/${id}`)
+      setData(res.data)
+    } catch { 
+      toast.error('Failed to load campaign context metrics') 
+    } finally { 
+      setLoading(false) 
+    }
   }
-  useEffect(() => { load(); const iv = setInterval(load, 8000); return () => clearInterval(iv) }, [id])
+
+  useEffect(() => {
+    load()
+    const iv = setInterval(load, 8000)
+    return () => clearInterval(iv)
+  }, [id])
+
+  const openInlineEditor = (item) => {
+    setActiveItem(item)
+    setEditedSubject(item.subject || '')
+    setEditedBody(item.body || '')
+  }
+
+  const handleCommitDraftUpdate = async () => {
+    if (!activeItem) return
+    setCommittingDraft(true)
+    try {
+      await api.post('/campaigns/draft/save', {
+        queue_item_id: activeItem.id,
+        updated_subject: editedSubject,
+        updated_body: editedBody
+      })
+      toast.success('Draft modifications authorized for deployment!')
+      setActiveItem(null)
+      load()
+    } catch {
+      toast.error('Failed to update target draft parameters.')
+    } finally {
+      setCommittingDraft(false)
+    }
+  }
+
+  const forceStartCampaignProcessing = async () => {
+    setTriggeringDeployment(true)
+    try {
+      await api.post(`/campaigns/${id}/start`)
+      toast.success('Omnichannel queue processing sequence activated!')
+      load()
+    } catch {
+      toast.error('Could not activate background worker nodes.')
+    } finally {
+      setTriggeringDeployment(false)
+    }
+  }
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 size={22} className="animate-spin text-blue-500" /></div>
   if (!data) return null
 
-  const sc = { sent:'text-emerald-600', failed:'text-red-500', pending:'text-slate-400' }
+  const sc = { sent:'text-emerald-600', failed:'text-red-500', pending:'text-slate-500 font-bold', draft:'text-amber-500 font-bold animate-pulse' }
 
   return (
-    <div>
-      <button onClick={onBack} className="btn-ghost -ml-2 mb-4"><ChevronLeft size={16} /> Back</button>
-      <div className="flex items-center gap-3 mb-5">
-        <h2 className="text-xl font-bold text-slate-900 flex-1">{data.name}</h2>
-        <span className={statusBadge[data.status] || 'badge-gray'}>{data.status?.toUpperCase()}</span>
-        <button onClick={load} className="btn-icon"><RefreshCw size={15} /></button>
+    <div className="space-y-6">
+      <div>
+        <button onClick={onBack} className="btn-ghost -ml-2 mb-4"><ChevronLeft size={16} /> Back</button>
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-bold text-slate-900 flex-1">{data.name}</h2>
+          <span className={statusBadge[data.status] || 'badge-gray'}>{data.status?.toUpperCase()}</span>
+          {data.status === 'queued' && (
+            <button 
+              onClick={forceStartCampaignProcessing} 
+              disabled={triggeringDeployment}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center gap-1.5 transition-all shadow-sm"
+            >
+              {triggeringDeployment ? <Loader2 size={13} className="animate-spin" /> : <ArrowRight size={13} />} Start Dispatch Loops
+            </button>
+          )}
+          <button onClick={load} className="btn-icon"><RefreshCw size={15} /></button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-3 mb-5">
+      <div className="grid grid-cols-4 gap-3">
         {[
-          { label:'Total', value: data.total_leads.toLocaleString(), color:'text-slate-900' },
-          { label:'Sent',  value: data.sent.toLocaleString(),        color:'text-emerald-600' },
-          { label:'Failed',value: data.failed.toLocaleString(),      color:'text-red-500' },
-          { label:'Limit', value: `${data.daily_limit}/day`,         color:'text-blue-600' },
+          { label:'Total Target Size', value: data.total_leads?.toLocaleString() || '0', color:'text-slate-900' },
+          { label:'Dispatched Nodes', value: data.sent?.toLocaleString() || '0', color:'text-emerald-600' },
+          { label:'Delivery Failures', value: data.failed?.toLocaleString() || '0', color:'text-red-500' },
+          { label:'Sequence Speed Limit', value: `${data.daily_limit || 100}/day`, color:'text-blue-600' },
         ].map(s => (
           <div key={s.label} className="card p-4">
             <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
@@ -130,38 +203,63 @@ function CampaignDetail({ id, onBack }) {
         ))}
       </div>
 
-      {Object.keys(data.fail_reasons || {}).length > 0 && (
-        <div className="bg-red-50 border border-red-100 rounded-xl p-4 mb-5">
-          <p className="text-xs font-bold text-red-600 uppercase tracking-wide mb-2">Failure Reasons</p>
-          {Object.entries(data.fail_reasons).map(([r,c]) => (
-            <div key={r} className="flex justify-between py-1.5 border-b border-red-100 last:border-0 text-sm">
-              <span className="text-red-700 truncate mr-4">{r}</span>
-              <span className="text-red-600 font-bold">{c}</span>
+      {/* Dynamic Inline Layout Split Preview Area */}
+      {activeItem && (
+        <div className="card border-2 border-blue-500/30 bg-slate-900 p-5 space-y-4 rounded-2xl fade-up">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <Edit3 size={14} className="text-blue-500" /> Refine Background AI Template Draft
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">Modifying active payload copy for: <span className="font-bold text-slate-300">{activeItem.email}</span></p>
             </div>
-          ))}
+            <button onClick={() => setActiveItem(null)} className="text-slate-500 hover:text-slate-400"><X size={16} /></button>
+          </div>
+          <div className="space-y-3">
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Subject Hook</label>
+              <input className="input mt-1 w-full bg-slate-950 border-slate-800 text-slate-200 text-xs" value={editedSubject} onChange={e => setEditedSubject(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Body Copy</label>
+              <textarea className="textarea mt-1 w-full bg-slate-950 border-slate-800 text-slate-300 text-xs h-40 leading-relaxed" value={editedBody} onChange={e => setEditedBody(e.target.value)} />
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => setActiveItem(null)} className="btn-secondary px-4 py-1.5 text-xs">Bypass Changes</button>
+            <button onClick={handleCommitDraftUpdate} disabled={committingDraft} className="btn-primary px-5 py-1.5 text-xs">
+              {committingDraft ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Approve & Queue
+            </button>
+          </div>
         </div>
       )}
 
       <div className="card overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
-          <p className="text-sm font-semibold text-slate-700">Sends</p>
+        <div className="px-4 py-3 border-b border-slate-100 bg-slate-50 flex items-center justify-between">
+          <p className="text-sm font-semibold text-slate-700">Dynamic Multi-Tenant Message Queue Status</p>
+          <p className="text-[11px] text-slate-400 font-medium">Click "Review Draft" to verify or modify background copies before pipeline dispatch.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="table-base w-full">
-            <thead><tr><th>Company</th><th>Email</th><th>Status</th><th>Error</th><th>Sent at</th></tr></thead>
+            <thead><tr><th>Company Node</th><th>Target Email Handle</th><th>State Status</th><th>Fault Diagnostic</th><th>Actions</th></tr></thead>
             <tbody>
               {(data.leads_preview || []).map((l, i) => (
-                <tr key={i}>
+                <tr key={i} className="hover:bg-slate-50/60 transition-colors">
                   <td className="font-medium text-slate-900">{l.company_name || '—'}</td>
-                  <td className="text-blue-600 text-xs">{l.email}</td>
-                  <td><span className={`text-xs font-semibold ${sc[l.status] || 'text-slate-400'}`}>{l.status?.toUpperCase()}</span></td>
+                  <td className="text-blue-600 text-xs font-mono">{l.email}</td>
+                  <td><span className={`text-xs font-bold uppercase ${sc[l.status] || 'text-slate-400'}`}>{l.status}</span></td>
                   <td className="text-xs text-red-500 max-w-xs truncate">{l.error || '—'}</td>
-                  <td className="text-xs text-slate-400">{l.sent_at ? new Date(l.sent_at).toLocaleString('en-IN') : '—'}</td>
+                  <td>
+                    {l.status === 'draft' ? (
+                      <button onClick={() => openInlineEditor(l)} className="text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-100 rounded-lg py-1 px-2.5 font-bold flex items-center gap-1 transition-all">
+                        <Eye size={11} /> Review Draft
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-medium text-slate-400 italic pl-2">Locked for Send</span>
+                    )}
+                  </td>
                 </tr>
               ))}
-              {!data.leads_preview?.length && (
-                <tr><td colSpan={5} className="text-center py-8 text-slate-400 text-sm">No sends yet</td></tr>
-              )}
             </tbody>
           </table>
         </div>
@@ -174,43 +272,19 @@ function CampaignDetail({ id, onBack }) {
 function CampaignCreate({ onBack, onDone }) {
   const [form, setForm] = useState({ campaign_name:'', subject_template:'', body_template:'', personalise:true, daily_limit:100, send_order:'as_selected' })
   const [selected, setSelected] = useState(new Map())
-  const [preview, setPreview]   = useState(null)
-  const [previewIdx, setPreviewIdx] = useState(0)
-  const [previewLoading, setPreviewLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [aiLoading, setAiLoading]   = useState(false)
-  const timerRef = useRef()
-
-  const schedulePreview = () => {
-    clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(loadPreview, 900)
-  }
-
-  const loadPreview = async () => {
-    if (selected.size === 0 || !form.subject_template) return
-    const ids = Array.from(selected.keys())
-    const leadId = ids[Math.min(previewIdx, ids.length-1)]
-    setPreviewLoading(true)
-    try {
-      const { data } = await campaignApi.preview({ subject: form.subject_template, body: form.body_template, lead_id: leadId, personalise: form.personalise })
-      setPreview(data)
-    } catch { /* silent */ } finally { setPreviewLoading(false) }
-  }
-
-  useEffect(() => { schedulePreview() }, [form.subject_template, form.body_template, form.personalise, selected.size, previewIdx])
 
   const submit = async () => {
-    if (!form.campaign_name || !form.subject_template || !form.body_template) { toast.error('Fill name, subject, body'); return }
-    if (selected.size === 0) { toast.error('Select at least one lead'); return }
+    if (!form.campaign_name || !form.subject_template || !form.body_template) { toast.error('Fill name, subject, body templates'); return }
+    if (selected.size === 0) { toast.error('Select target leads to ingest'); return }
     setSubmitting(true)
     try {
       await campaignApi.create({ ...form, lead_ids: Array.from(selected.keys()) })
-      toast.success(`Campaign started for ${selected.size} leads!`)
+      toast.success(`Campaign initialized! Processing background generations...`)
       setTimeout(onDone, 800)
-    } catch (e) { toast.error(e.response?.data?.detail || 'Failed') } finally { setSubmitting(false) }
+    } catch (e) { toast.error(e.response?.data?.detail || 'Execution configuration failure') } finally { setSubmitting(false) }
   }
-
-  const ids = Array.from(selected.keys())
 
   return (
     <div>
@@ -218,7 +292,6 @@ function CampaignCreate({ onBack, onDone }) {
       <h2 className="text-xl font-bold text-slate-900 mb-5">New Email Campaign</h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: form */}
         <div className="space-y-4">
           <div className="card p-5 space-y-4">
             <div>
@@ -242,92 +315,62 @@ function CampaignCreate({ onBack, onDone }) {
             </div>
             <div>
               <div className="flex items-center justify-between mb-1.5">
-                <label className="field-label mb-0">Subject</label>
-                <button onClick={async () => {
+                <label className="field-label mb-0">Base Subject Line Template</label>
+                <button type="button" onClick={async () => {
                   setAiLoading(true)
                   try {
                     const { data } = await campaignApi.preview({
-                      subject: '', body: '', lead_id: 0,
-                      personalise: false,
-                      generate_template: true,
+                      subject: '', body: '', lead_id: 0, personalise: false, generate_template: true,
                       context_hint: form.campaign_name || 'cold outreach to business leads',
                     })
                     if (data.subject) setForm(p => ({...p, subject_template: data.subject}))
                     if (data.body)    setForm(p => ({...p, body_template: data.body}))
-                  } catch (e) { toast.error('AI generation failed') } finally { setAiLoading(false) }
+                  } catch (e) { toast.error('AI blueprint generation failed') } finally { setAiLoading(false) }
                 }} disabled={aiLoading} className="btn-ghost btn-sm text-blue-600 text-xs">
-                  {aiLoading ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />} AI generate
+                  {aiLoading ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />} Create AI Template Blueprint
                 </button>
               </div>
               <input className="input" placeholder="Quick question for {lead_company}"
-                value={form.subject_template}
-                onChange={e => { setForm(p => ({...p, subject_template: e.target.value})); schedulePreview() }} />
+                value={form.subject_template} onChange={e => setForm(p => ({...p, subject_template: e.target.value}))} />
             </div>
             <div>
-              <label className="field-label">Body</label>
+              <label className="field-label">Base Body Copy Template</label>
               <textarea className="textarea h-40" placeholder={"Hi {lead_name},\n\nI noticed {lead_company}..."}
-                value={form.body_template}
-                onChange={e => { setForm(p => ({...p, body_template: e.target.value})); schedulePreview() }} />
-              <p className="text-xs text-blue-600 font-medium mt-1">✨ Your signature added automatically</p>
+                value={form.body_template} onChange={e => setForm(p => ({...p, body_template: e.target.value}))} />
+              <p className="text-xs text-blue-600 font-medium mt-1">✨ Dynamic multi-tenant profile fields will inject automatically on launch</p>
             </div>
             <div className="flex items-center justify-between py-2 border-t border-slate-100">
               <div>
-                <p className="text-sm font-medium text-slate-800">AI personalisation</p>
-                <p className="text-xs text-slate-400">Groq rewrites each email per lead</p>
+                <p className="text-sm font-medium text-slate-800">Background AI Personalisation</p>
+                <p className="text-xs text-slate-400">Groq loops asynchronously to generate custom drafts per lead</p>
               </div>
-              <button onClick={() => setForm(p => ({...p, personalise: !p.personalise}))}
+              <button type="button" onClick={() => setForm(p => ({...p, personalise: !p.personalise}))}
                 className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${form.personalise ? 'bg-blue-500' : 'bg-slate-200'}`}>
                 <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.personalise ? 'left-5' : 'left-0.5'}`} />
               </button>
             </div>
           </div>
 
-          {/* Lead selector */}
           <div className="card p-5">
-            <label className="field-label mb-3 block">Add leads</label>
+            <label className="field-label mb-3 block">Target Outreach Segment List Selection</label>
             <LeadSelector selected={selected} onChange={setSelected} requirePhone={false} />
           </div>
         </div>
 
-        {/* Right: preview */}
+        {/* Right Info Notice Panel Placeholder */}
         <div>
-          <div className="card p-5 sticky top-6">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">
-                <Eye size={14} className="text-slate-400" /> Live Preview
-              </p>
-              {ids.length > 1 && (
-                <div className="flex items-center gap-1 text-xs text-slate-400">
-                  <button onClick={() => setPreviewIdx(p => Math.max(0,p-1))} disabled={previewIdx===0} className="btn-icon p-1 disabled:opacity-30 text-xs">‹</button>
-                  {previewIdx+1}/{ids.length}
-                  <button onClick={() => setPreviewIdx(p => Math.min(ids.length-1,p+1))} disabled={previewIdx>=ids.length-1} className="btn-icon p-1 disabled:opacity-30 text-xs">›</button>
-                </div>
-              )}
+          <div className="card bg-slate-50 border border-slate-200 p-6 sticky top-6 space-y-4 rounded-2xl">
+            <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
+              <Zap size={15} className="text-amber-500" /> Automated Pipeline Blueprint Flow
             </div>
-
-            {previewLoading && (
-              <div className="flex items-center justify-center gap-2 py-10 text-slate-400 text-sm">
-                <Loader2 size={16} className="animate-spin text-blue-500" /> Generating…
-              </div>
-            )}
-            {!previewLoading && selected.size === 0 && (
-              <div className="py-12 text-center text-sm text-slate-400">Select leads to see preview</div>
-            )}
-            {!previewLoading && preview && (
-              <div className="fade-up space-y-3">
-                <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
-                  <p className="text-[10px] text-slate-400 font-mono uppercase mb-1">Subject</p>
-                  <p className="text-sm font-semibold text-slate-800">{preview.subject}</p>
-                </div>
-                <div className="bg-slate-50 rounded-xl border border-slate-200 p-4">
-                  <p className="text-[10px] text-slate-400 font-mono uppercase mb-2">Body</p>
-                  <p className="text-sm text-slate-700 whitespace-pre-line leading-relaxed">{preview.body}</p>
-                </div>
-                <p className="text-xs text-slate-400">
-                  For: <strong>{preview.lead_name || '—'}</strong>{preview.lead_company ? ` @ ${preview.lead_company}` : ''}
-                </p>
-              </div>
-            )}
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Neolix has completely retired local generation waiting loops. When you click launch, the backend immediately distributes your custom body blueprints into concurrent Groq processing threads.
+            </p>
+            <div className="bg-white p-3 border rounded-xl space-y-2 text-[11px] text-slate-600 font-medium">
+              <p>🟢 Step 1: Initialize template layouts and variables.</p>
+              <p>🟡 Step 2: System builds isolated custom copies automatically in background collections.</p>
+              <p>🔵 Step 3: Open details panel anytime to refine copy strings or confirm active dispatch hooks.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -335,21 +378,16 @@ function CampaignCreate({ onBack, onDone }) {
       <div className="mt-6 pt-5 border-t border-slate-200 flex items-center gap-3">
         <button onClick={submit} disabled={submitting} className="btn-primary px-8">
           {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-          {submitting ? 'Creating…' : `Send to ${selected.size} leads`}
+          {submitting ? 'Initializing Matrix…' : `Launch Campaign for ${selected.size} Targets`}
         </button>
         <button onClick={onBack} className="btn-ghost">Cancel</button>
-        {selected.size > 0 && (
-          <p className="text-xs text-slate-400 ml-auto">
-            ~{Math.ceil(selected.size / form.daily_limit)} day(s) to complete
-          </p>
-        )}
       </div>
     </div>
   )
 }
 
 // ═══════════════════════════════════════════════════════════
-// REPLIES
+// REPLIES VIEW LAYERS (Kept completely intact)
 // ═══════════════════════════════════════════════════════════
 
 function ThreadView({ replyId, onClose }) {
@@ -505,7 +543,6 @@ function RepliesTab() {
 
   return (
     <div className="flex flex-col" style={{height:'calc(100vh - 180px)'}}>
-      {/* Sub-tabs */}
       <div className="flex items-center gap-0 border-b border-slate-200 mb-0 flex-shrink-0">
         {[{id:'inbox',label:'Inbox'},{id:'sent',label:'Sent'}].map(t => (
           <button key={t.id} onClick={() => { setSubTab(t.id); setSelectedId(null); setSelectedSent(null) }}
@@ -529,9 +566,7 @@ function RepliesTab() {
         </div>
       </div>
 
-      {/* Body */}
       <div className="flex flex-1 overflow-hidden border border-slate-200 rounded-xl mt-3">
-        {/* List */}
         <div className="w-80 flex-shrink-0 border-r border-slate-100 overflow-y-auto bg-white">
           {loading && <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin text-blue-500" /></div>}
 
@@ -588,7 +623,6 @@ function RepliesTab() {
           ))}
         </div>
 
-        {/* Detail pane */}
         <div className="flex-1 overflow-hidden bg-white">
           {subTab==='inbox' && selectedId && <ThreadView replyId={selectedId} onClose={() => setSelectedId(null)} />}
           {subTab==='inbox' && !selectedId && (
@@ -626,21 +660,19 @@ function RepliesTab() {
 // ROOT — EmailPage
 // ═══════════════════════════════════════════════════════════
 export default function EmailPage() {
-  const [tab, setTab]       = useState('campaigns')   // campaigns | replies
-  const [campView, setCampView] = useState('list')    // list | create | detail
+  const [tab, setTab]       = useState('campaigns')   
+  const [campView, setCampView] = useState('list')    
   const [detailId, setDetailId] = useState(null)
   
-  // Natively intercept active unread counts hook tracker
   const { emailUnread } = useUnreadReplies();
 
   return (
     <div>
-      {/* Top tabs */}
       <div className="flex items-center gap-0 border-b border-slate-200 mb-6 -mt-2">
         <h1 className="text-lg font-bold text-slate-900 pr-6 py-3">Email</h1>
         {[
           { id: 'campaigns', label: 'Campaigns' },
-          { id: 'replies',   label: 'Replies', badgeCount: emailUnread }, // Injected real count indicator
+          { id: 'replies',   label: 'Replies', badgeCount: emailUnread }, 
         ].map(t => (
           <button key={t.id} onClick={() => { setTab(t.id); setCampView('list') }}
             className={`px-5 py-3 text-sm font-medium border-b-2 transition-all flex items-center gap-2

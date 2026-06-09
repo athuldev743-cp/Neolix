@@ -1,15 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Inbox, RefreshCw, Plus, Loader2, ChevronLeft,
-  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText
+  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { waApi, repliesApi } from '../services/api'
+import { waApi, repliesApi, api } from '../services/api'
 import LeadSelector from '../components/LeadSelector'
 import { useUnreadReplies } from '../hooks/useUnreadReplies'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-const statusBadge = { running: 'badge-blue', completed: 'badge-green', queued: 'badge-gray', failed: 'badge-red', paused: 'badge-orange' }
+const statusBadge = { 
+  generating: 'bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2.5 py-0.5 rounded-full text-[10px] font-bold animate-pulse',
+  running: 'badge-blue', 
+  completed: 'badge-green', 
+  queued: 'badge-gray', 
+  failed: 'badge-red', 
+  paused: 'badge-orange' 
+}
 
 function timeAgo(iso) {
   if (!iso) return '—'
@@ -68,7 +75,7 @@ function BaileysConnectionStatus() {
 
   if (status.connected) return (
     <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800">
-      <div className="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0" />
+      <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
       <div className="text-xs font-bold">Baileys API Service Connected Natively</div>
     </div>
   )
@@ -117,7 +124,7 @@ function CampaignList({ onCreate, onDetail }) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">WhatsApp Engine Outreach</h2>
-          <p className="text-sm text-slate-400 mt-0.5">Multi-variant cluster orchestration layers</p>
+          <p className="text-sm text-slate-400 mt-0.5">Automated background copy synthesis via product showcase parameters</p>
         </div>
         <div className="flex gap-2">
           <button onClick={load} className="btn-icon"><RefreshCw size={16} /></button>
@@ -138,7 +145,7 @@ function CampaignList({ onCreate, onDetail }) {
         {camps.map(c => {
           const pct = c.total_leads > 0 ? Math.round((c.sent / c.total_leads) * 100) : 0
           return (
-            <div key={c.id} onClick={() => onDetail(c.id)} className="card-hover p-5 flex items-center gap-4">
+            <div key={c.id} onClick={() => onDetail(c.id)} className="card-hover p-5 flex items-center gap-4 cursor-pointer">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <p className="font-semibold text-slate-900 truncate">{c.name}</p>
@@ -161,11 +168,15 @@ function CampaignList({ onCreate, onDetail }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CAMPAIGN DETAIL LOG VIEW
+// CAMPAIGN DETAIL LOG VIEW WITH PREVIEW INTERFACES
 // ═══════════════════════════════════════════════════════════
 function CampaignDetail({ id, onBack }) {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [activeItem, setActiveItem] = useState(null)
+  const [editedMessage, setEditedMessage] = useState('')
+  const [committingDraft, setCommittingDraft] = useState(false)
+  const [triggeringDispatch, setTriggeringDispatch] = useState(false)
 
   const load = async () => {
     try {
@@ -184,15 +195,69 @@ function CampaignDetail({ id, onBack }) {
     return () => clearInterval(iv)
   }, [id])
 
+  const openInlineEditor = (item) => {
+    setActiveItem(item)
+    setEditedMessage(item.message || '')
+  }
+
+  const handleCommitDraftApproval = async () => {
+    if (!activeItem) return
+    setCommittingDraft(true)
+    try {
+      await api.post('/whatsapp/draft/approve', {
+        queue_item_id: activeItem.id,
+        updated_message: editedMessage
+      })
+      toast.success('WhatsApp copy variant approved for dispatch!')
+      setActiveItem(null)
+      load()
+    } catch {
+      toast.error('Failed to register draft confirmation.')
+    } finally {
+      setCommittingDraft(false)
+    }
+  }
+
+  const handleForceStartDispatch = async () => {
+    setTriggeringDispatch(true)
+    try {
+      await api.post(`/whatsapp/campaign/${id}/start`)
+      toast.success('Outbound messaging engine initialized!')
+      load()
+    } catch {
+      toast.error('Failed to trigger background worker channels.')
+    } finally {
+      setTriggeringDispatch(false)
+    }
+  }
+
   if (loading) return <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin text-emerald-500" /></div>
   if (!data) return null
+
+  const sc = { 
+    sent: 'text-emerald-600 font-bold', 
+    failed: 'text-red-500 font-bold', 
+    pending: 'text-slate-500 font-bold', 
+    draft: 'text-amber-500 font-bold animate-pulse' 
+  }
 
   return (
     <div className="space-y-4">
       <button onClick={onBack} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back</button>
       <div className="flex justify-between items-center">
         <h2 className="text-lg font-bold">{data.name}</h2>
-        <span className={statusBadge[data.status] || 'badge-gray'}>{data.status?.toUpperCase()}</span>
+        <div className="flex items-center gap-2">
+          <span className={statusBadge[data.status] || 'badge-gray'}>{data.status?.toUpperCase()}</span>
+          {data.status === 'queued' && (
+            <button 
+              onClick={handleForceStartDispatch}
+              disabled={triggeringDispatch}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2 px-4 rounded-xl flex items-center gap-1.5 transition-all shadow-sm"
+            >
+              {triggeringDispatch ? <Loader2 size={13} className="animate-spin" /> : <ArrowRight size={13} />} Start Delivery Engine
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">
@@ -201,15 +266,49 @@ function CampaignDetail({ id, onBack }) {
         <div className="card p-4 text-red-500"><strong>{data.failed}</strong><p className="text-xs text-slate-400">Faulty Runs</p></div>
       </div>
 
+      {/* Dynamic Inline Layout Split Preview Workspace Editor */}
+      {activeItem && (
+        <div className="card border border-slate-800 bg-slate-950 p-5 space-y-4 rounded-2xl fade-up">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <Edit3 size={14} className="text-emerald-500" /> Refine WhatsApp Background Copy Draft
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">Modifying targeted layout string for: <span className="font-bold text-slate-300">+{activeItem.phone}</span></p>
+            </div>
+            <button onClick={() => setActiveItem(null)} className="text-slate-500 hover:text-slate-400"><X size={16} /></button>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Message Copy Body</label>
+            <textarea className="textarea mt-1 w-full bg-slate-900 border-slate-800 text-slate-200 text-xs h-36 leading-relaxed" value={editedMessage} onChange={e => setEditedMessage(e.target.value)} />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => setActiveItem(null)} className="btn-secondary px-4 py-1.5 text-xs">Dismiss</button>
+            <button onClick={handleCommitDraftApproval} disabled={committingDraft} className="bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl py-1.5 px-4 font-bold text-xs flex items-center gap-1 transition-all">
+              {committingDraft ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Approve Copy & Queue
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="card overflow-hidden">
         <table className="table-base w-full text-xs text-left">
-          <thead className="bg-slate-50 text-slate-600"><tr><th className="p-3">Company</th><th className="p-3">WhatsApp</th><th className="p-3">Status</th></tr></thead>
+          <thead className="bg-slate-50 text-slate-600"><tr><th className="p-3">Company</th><th className="p-3">WhatsApp</th><th className="p-3">Status</th><th className="p-3">Actions</th></tr></thead>
           <tbody>
             {data.leads_preview?.map((l, i) => (
-              <tr key={i} className="border-t">
+              <tr key={i} className="border-t hover:bg-slate-50/60 transition-colors">
                 <td className="p-3 font-medium">{l.company || l.name || '-'}</td>
                 <td className="p-3 text-slate-500">+{l.phone}</td>
-                <td className="p-3"><span className={l.status === 'sent' ? 'text-emerald-600 font-bold' : 'text-red-500'}>{l.status?.toUpperCase()}</span></td>
+                <td className="p-3"><span className={`text-xs font-bold uppercase ${sc[l.status] || 'text-slate-400'}`}>{l.status}</span></td>
+                <td className="p-3">
+                  {l.status === 'draft' ? (
+                    <button onClick={() => openInlineEditor(l)} className="text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-100 rounded-lg py-1 px-2.5 font-bold flex items-center gap-1 transition-all">
+                      <Eye size={11} /> Review Draft
+                    </button>
+                  ) : (
+                    <span className="text-[11px] font-medium text-slate-400 italic">Locked for Send</span>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -220,7 +319,7 @@ function CampaignDetail({ id, onBack }) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CAMPAIGN CREATE VIEW
+// CAMPAIGN CREATE VIEW (Renders Master Input Blueprints)
 // ═══════════════════════════════════════════════════════════
 function CampaignCreate({ onBack, onDone }) {
   const [form, setForm] = useState(() => {
@@ -240,13 +339,9 @@ function CampaignCreate({ onBack, onDone }) {
 
   const [imageUrl, setImageUrl] = useState(null)
   const [selected, setSelected] = useState(new Map())
-  const [allPreviews, setAllPreviews] = useState({ hook: null, detailed: null, image: null })
   const [focusedType, setFocusedType] = useState('detailed') 
-  const [previewIdx, setPreviewIdx] = useState(0)
-  const [previewLoading, setPreviewLoading] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const timerRef = useRef()
 
   const leadIds = Array.from(selected.keys())
 
@@ -281,51 +376,6 @@ function CampaignCreate({ onBack, onDone }) {
       return next
     })
   }
-
-  const schedulePreview = () => {
-    clearTimeout(timerRef.current)
-    timerRef.current = setTimeout(loadAllActivePreviews, 1000)
-  }
-
-  const loadAllActivePreviews = async () => {
-    if (selected.size === 0) return
-    const ids = Array.from(selected.keys())
-    const targetId = ids[Math.min(previewIdx, ids.length - 1)]
-    const cachedLead = selected.get(targetId) || {}
-    const bDetails = cachedLead.business_description || cachedLead.business_details || '';
-
-    setPreviewLoading(true)
-    const activeList = Array.from(activeTypes)
-
-    try {
-      await Promise.all(
-        activeList.map(async (type) => {
-          if (!messages[type]?.trim()) {
-            setAllPreviews(p => ({ ...p, [type]: null }))
-            return
-          }
-          try {
-            const { data } = await waApi.preview({
-              message: messages[type],
-              lead_id: targetId,
-              lead_name: cachedLead.contact_name || cachedLead.name || '',
-              lead_company: cachedLead.company_name || cachedLead.company || '',
-              business_details: bDetails,
-              personalise: form.personalise,
-              message_type: type
-            })
-            setAllPreviews(p => ({ ...p, [type]: data?.message || String(data || '') }))
-          } catch {
-            setAllPreviews(p => ({ ...p, [type]: 'Failed to parse variations context.' }))
-          }
-        })
-      )
-    } finally {
-      setPreviewLoading(false)
-    }
-  }
-
-  useEffect(() => { schedulePreview() }, [messages, activeTypes, form.personalise, selected.size, previewIdx])
 
   const triggerAIGenerate = async () => {
     setAiLoading(true)
@@ -369,7 +419,7 @@ function CampaignCreate({ onBack, onDone }) {
         image_template: messages.image || "",
         image_base64: imageUrl ? imageUrl.split(',')[1] : ""
       })
-      toast.success(`Multi-variant campaign deployment successful!`)
+      toast.success(`Strategy deployed! System is processing drafts in background caches.`)
       purgeFormCache()
       setTimeout(onDone, 500)
     } catch (err) {
@@ -379,7 +429,6 @@ function CampaignCreate({ onBack, onDone }) {
     }
   }
 
-  const activeLead = selected.get(leadIds[Math.min(previewIdx, leadIds.length - 1)])
   const activeConfigMeta = MSG_TYPES.find(x => x.id === focusedType)
 
   return (
@@ -431,15 +480,15 @@ function CampaignCreate({ onBack, onDone }) {
 
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold text-slate-500 uppercase">{activeConfigMeta?.label} Base Content</span>
-                  <button type="button" onClick={triggerAIGenerate} disabled={aiLoading} className="text-xs font-bold text-emerald-600 flex items-center gap-1">{aiLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} AI Generate Template</button>
+                  <span className="text-xs font-bold text-slate-500 uppercase">{activeConfigMeta?.label} Base Blueprint Template</span>
+                  <button type="button" onClick={triggerAIGenerate} disabled={aiLoading} className="text-xs font-bold text-emerald-600 flex items-center gap-1">{aiLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} AI Generate Blueprint</button>
                 </div>
                 <textarea className="textarea h-32 font-mono text-xs" value={messages[focusedType]} onChange={e => setMessages({ ...messages, [focusedType]: e.target.value })} placeholder={activeConfigMeta?.placeholder} />
               </div>
             </div>
 
             <div className="flex items-center justify-between py-2 border-t text-xs">
-              <div><p className="font-bold text-slate-700">Dynamic Profile Rewriting Engine</p><p className="text-slate-400">Context variables populate straight out of target database fields profile data vectors.</p></div>
+              <div><p className="font-bold text-slate-700">Asynchronous AI Personalisation Pipeline</p><p className="text-slate-400">Groq parses variables automatically into individual multi-tenant drafts in background storage.</p></div>
               <button type="button" onClick={() => setForm({ ...form, personalise: !form.personalise })} className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${form.personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.personalise ? 'left-5' : 'left-0.5'}`} /></button>
             </div>
           </div>
@@ -447,54 +496,20 @@ function CampaignCreate({ onBack, onDone }) {
           <div className="card p-5"><label className="field-label mb-2 block">Recipient Segment Node Target</label><LeadSelector selected={selected} onChange={setSelected} requirePhone={true} /></div>
         </div>
 
+        {/* Right Info Notice Flow Panel */}
         <div>
-          <div className="card p-5 sticky top-6 space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex justify-between items-center border-b pb-2">
-              <span className="text-xs font-black uppercase tracking-wider text-slate-500 flex items-center gap-1"><Eye size={13} /> Active Campaign Previews Stack</span>
-              {leadIds.length > 1 && (
-                <div className="flex items-center gap-1 text-xs text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border">
-                  <button type="button" onClick={() => setPreviewIdx(p => Math.max(0, p - 1))} disabled={previewIdx === 0} className="font-bold">‹</button>
-                  <span>{previewIdx + 1}/{leadIds.length}</span>
-                  <button type="button" onClick={() => setPreviewIdx(p => Math.min(leadIds.length - 1, p + 1))} disabled={previewIdx >= leadIds.length - 1} className="font-bold">›</button>
-                </div>
-              )}
+          <div className="card bg-slate-50 border border-slate-200 p-6 sticky top-6 space-y-4 rounded-2xl">
+            <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
+              <Zap size={15} className="text-emerald-500" /> Autonomous Pipeline Architecture
             </div>
-
-            {selected.size === 0 && <div className="py-12 text-center text-xs text-slate-400 border border-dashed rounded-xl">Select leads to simulate dynamic response matrices stack outputs</div>}
-            {previewLoading && <div className="py-8 flex justify-center"><Loader2 size={16} className="animate-spin text-emerald-500" /> Preparing pipeline configurations...</div>}
-
-            {!previewLoading && selected.size > 0 && (
-              <div className="space-y-4 fade-up">
-                {Array.from(activeTypes).map((type) => {
-                  const previewText = allPreviews[type];
-                  if (!previewText && !messages[type]?.trim()) return null;
-                  
-                  return (
-                    <div key={type} className="space-y-1">
-                      <p className="text-[9px] font-black text-slate-400 uppercase flex items-center gap-1">
-                        <TypeIcon id={type} size={10} /> {type.toUpperCase()} Outbound Stream Variant
-                      </p>
-                      <div className="p-3.5 rounded-xl border relative shadow-2xs" style={{ backgroundColor: '#e5ddd5' }}>
-                        <div className="flex justify-end">
-                          <div className="bg-[#dcf8c6] p-3 rounded-2xl rounded-tr-none shadow-3xs max-w-[85%] text-xs text-slate-800 leading-relaxed">
-                            {type === 'image' && imageUrl && <img src={imageUrl} alt="Attached Data Asset" className="w-full h-24 object-cover rounded-lg mb-1.5 border" />}
-                            <p className="whitespace-pre-wrap">{previewText || messages[type]}</p>
-                            <p className="text-[9px] text-slate-400 text-right mt-1">✓✓</p>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-
-                <div className="p-3 bg-slate-50 border rounded-xl text-[11px] text-slate-500 space-y-0.5">
-                  <span className="font-bold text-slate-700 block mb-0.5">Target Account Metadata Parameters:</span>
-                  <p><strong className="text-slate-600">Recipient Name:</strong> {activeLead?.contact_name || activeLead?.name || 'Unspecified Node'}</p>
-                  <p><strong className="text-slate-600">Company Group:</strong> {activeLead?.company_name || activeLead?.company || '-'}</p>
-                  <p className="line-clamp-2"><strong className="text-slate-600">AI Context Vector Profile:</strong> {activeLead?.business_description || activeLead?.business_details || 'No data found'}</p>
-                </div>
-              </div>
-            )}
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Manual step previews have been retired during configuration creation steps. When you deploy this strategy matrix, background threads will handle variant allocations instantly.
+            </p>
+            <div className="bg-white p-3 border rounded-xl space-y-2 text-[11px] text-slate-600 font-medium">
+              <p>🟢 Step 1: Establish layout blueprint templates.</p>
+              <p>🟡 Step 2: Concurrently generate copies for every lead across text channels.</p>
+              <p>🔵 Step 3: Navigate to the details view pane to review, edit, or unlock sending sequences manually.</p>
+            </div>
           </div>
         </div>
       </div>
@@ -502,7 +517,7 @@ function CampaignCreate({ onBack, onDone }) {
       <div className="flex gap-2 justify-end pt-3 border-t">
         <button type="button" onClick={onBack} className="px-4 py-1.5 text-xs border rounded-xl font-bold hover:bg-slate-50">Cancel</button>
         <button type="button" onClick={submitCampaignPipeline} disabled={submitting || selected.size === 0} className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
-          {submitting ? <Loader2 size={12} className="animate-spin" /> : <input type="hidden" /> && <Plus size={12} />} Deploy Strategy Matrix
+          {submitting ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Deploy Strategy Matrix
         </button>
       </div>
     </div>
@@ -665,7 +680,6 @@ function RepliesTab() {
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 180px)' }}>
-      {/* Sub-tabs */}
       <div className="flex items-center gap-0 border-b border-slate-200 mb-0 flex-shrink-0">
         {[{ id: 'inbox', label: 'Inbox' }, { id: 'sent', label: 'Sent' }].map(t => (
           <button key={t.id} onClick={() => { setSubTab(t.id); setSelectedId(null); setSelectedSent(null) }}
@@ -689,9 +703,7 @@ function RepliesTab() {
         </div>
       </div>
 
-      {/* Body */}
       <div className="flex flex-1 overflow-hidden border border-slate-200 rounded-xl mt-3">
-        {/* List Side-panel */}
         <div className="w-80 flex-shrink-0 border-r border-slate-100 overflow-y-auto bg-white">
           {loading && <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin text-emerald-500" /></div>}
 
@@ -748,7 +760,6 @@ function RepliesTab() {
           ))}
         </div>
 
-        {/* Detail Chat Workspace Pane */}
         <div className="flex-1 overflow-hidden bg-white">
           {subTab === 'inbox' && selectedId && (
             <ThreadView 
@@ -793,7 +804,7 @@ function RepliesTab() {
 
 // ── GLOBAL SYSTEM MAIN EXPORT LAYER ───────────────────────────────────────────
 export default function WhatsAppPage() {
-  const [view, setView] = useState('list') // list | create | detail | replies
+  const [view, setView] = useState('list') 
   const [detailId, setDetailId] = useState(null)
   
   const { waUnread } = useUnreadReplies();

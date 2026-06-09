@@ -2,14 +2,20 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Inbox, Loader2, Eye, X, MessageSquare, Sparkles, CheckCheck, Reply,
   FileText, Zap, Search, Upload, ShieldCheck, Check, ChevronRight, 
-  ClipboardList, RefreshCw, Plus, ChevronLeft, Smartphone
+  ClipboardList, RefreshCw, Plus, ChevronLeft, Smartphone, Save, Edit3
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import API, { waApi, leadsApi, repliesApi } from '../services/api'
-import SMSQueueTable from '../components/sms/SMSQueueTable'
 import { useUnreadReplies } from '../hooks/useUnreadReplies'
 
-const statusBadge = { running: 'badge-blue', completed: 'badge-green', queued: 'badge-gray', failed: 'badge-red', paused: 'badge-orange' }
+const statusBadge = { 
+  running: 'badge-blue', 
+  completed: 'badge-green', 
+  queued: 'badge-gray', 
+  failed: 'badge-red', 
+  paused: 'badge-orange',
+  draft: 'bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold animate-pulse'
+}
 
 function normalizePhone(phone) {
   const digits = (phone || '').replace(/\D/g, '')
@@ -25,6 +31,117 @@ function timeAgo(iso) {
   const h = Math.floor(m / 60)
   if (h < 24) return `${h}h ago`
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+}
+
+// ─── UPGRADED LOCAL COMPONENT: CUSTOM INLINE DRAFT PREVIEW TABLE ──────────────
+function SMSQueueTable({ logs, onRefresh }) {
+  const [activeItem, setActiveItem] = useState(null)
+  const [editedBody, setEditedBody] = useState('')
+  const [approving, setApproving] = useState(false)
+
+  const openDraftEditor = (msg) => {
+    setActiveItem(msg)
+    setEditedBody(msg.message_body || '')
+  }
+
+  const handleApproveDraft = async () => {
+    if (!activeItem) return
+    setApproving(true)
+    try {
+      await API.post('/sms/draft/approve', {
+        msg_id: activeItem._id,
+        updated_body: editedBody
+      })
+      toast.success('SMS content approved and released to native outbox queue!')
+      setActiveItem(null)
+      if (onRefresh) onRefresh()
+    } catch {
+      toast.error('Failed to authorize draft content.')
+    } finally {
+      setApproving(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Dynamic Inline Layout Split Workspace Preview Block */}
+      {activeItem && (
+        <div className="card border border-blue-500/30 bg-slate-900 p-5 space-y-4 rounded-2xl fade-up text-white">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <Edit3 size={14} className="text-blue-400" /> Review Background SMS Draft Copy
+              </h3>
+              <p className="text-[11px] text-slate-400 mt-0.5">Modifying active payload parameters for: <span className="font-bold text-slate-300">{activeItem.lead_name} (+{activeItem.phone_number})</span></p>
+            </div>
+            <button onClick={() => setActiveItem(null)} className="text-slate-500 hover:text-slate-400"><X size={16} /></button>
+          </div>
+          <div>
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">SMS Text Body Copy</label>
+            <textarea 
+              className="textarea mt-1 w-full bg-slate-950 border-slate-800 text-slate-200 text-xs h-24 resize-none leading-relaxed" 
+              value={editedBody} 
+              onChange={e => setEditedBody(e.target.value)} 
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => setActiveItem(null)} className="btn-secondary px-4 py-1.5 text-xs text-slate-300">Dismiss</button>
+            <button onClick={handleApproveDraft} disabled={approving} className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-1.5 px-4 font-bold text-xs flex items-center gap-1 transition-all">
+              {approving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Approve & Release to Device Node
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="card overflow-hidden bg-white border rounded-2xl shadow-2xs">
+        <div className="px-4 py-3 border-b bg-slate-50 flex items-center justify-between">
+          <p className="text-xs font-black uppercase tracking-wider text-slate-500">Live Hardware Outbox Stream</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="table-base w-full text-xs text-left">
+            <thead className="bg-slate-100 text-slate-600">
+              <tr>
+                <th className="p-3">Recipient Node</th>
+                <th className="p-3">Cellular Handle</th>
+                <th className="p-3">Status</th>
+                <th className="p-3">Generated Message Preview</th>
+                <th className="p-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((l, i) => {
+                const currentStatus = l.status?.toLowerCase()
+                return (
+                  <tr key={i} className="border-t hover:bg-slate-50/60 transition-colors">
+                    <td className="p-3 font-semibold text-slate-900">{l.lead_name || 'Direct Input'}</td>
+                    <td className="p-3 text-slate-500 font-mono">+{l.phone_number}</td>
+                    <td className="p-3">
+                      <span className={statusBadge[currentStatus] || 'badge-gray'}>
+                        {l.status}
+                      </span>
+                    </td>
+                    <td className="p-3 max-w-xs truncate text-slate-600 font-medium">{l.message_body}</td>
+                    <td className="p-3">
+                      {currentStatus === 'draft' ? (
+                        <button onClick={() => openDraftEditor(l)} className="text-[10px] bg-slate-900 hover:bg-slate-800 text-white font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all">
+                          <Eye size={11} /> Review Draft
+                        </button>
+                      ) : (
+                        <span className="text-[11px] font-medium text-slate-400 italic pl-1">Polled / Locked</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+              {logs.length === 0 && (
+                <tr><td colSpan={5} className="text-center py-10 text-slate-400 font-medium">Outbox tracking history is currently empty.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function CampaignLeadSelector({ selected, onChange }) {
@@ -281,77 +398,105 @@ function CampaignLeadSelector({ selected, onChange }) {
   )
 }
 
+// ── UPGRADED COMPONENT: INTEGRATED ASYNCHRONOUS BLUEPRINT SCHEDULER ───────────
 function SMSCampaignCreate({ onBack, onDone }) {
-  const [form, setForm] = useState({ campaign_name: '', daily_limit: 150, timezone: 'Asia/Kolkata' })
+  const [form, setForm] = useState({ campaign_name: '', sms_template_body: '', daily_limit: 150, timezone: 'Asia/Kolkata' })
   const [selectedLeads, setSelectedLeads] = useState(new Map())
   const [loading, setLoading] = useState(false)
 
   const handleCreate = async (e) => {
     if (e) e.preventDefault()
-    if (!form.campaign_name.trim()) return toast.error('Please enter a Campaign Name first!')
-    if (selectedLeads.size === 0) return toast.error('Select at least one recipient lead!')
+    if (!form.campaign_name.trim()) return toast.error('Please enter a Campaign Label identity first!')
+    if (!form.sms_template_body.trim()) return toast.error('Please configure your SMS blueprint template copy!')
+    if (selectedLeads.size === 0) return toast.error('Select at least one recipient lead segment node!')
     
     setLoading(true)
     try {
+      // 1. Sync global gateway configuration threshold rules
       await API.post('/sms/config', {
         daily_cap: form.daily_limit,
         timezone: form.timezone
       })
 
-      const leadsArray = Array.from(selectedLeads.values())
-      
-      await Promise.all(
-        leadsArray.map(lead => 
-          API.post('/sms/enqueue', {
-            phone_number: normalizePhone(lead.phone),
-            message_body: `Hi ${lead.contact_name || 'there'}, we noticed ${lead.company_name || 'your business'} matches our platform criteria. Let's chat!`,
-            lead_name: lead.contact_name || lead.company_name || 'Direct Input'
-          })
-        )
-      )
+      // 2. Dispatch batch array directly to background compilation pipelines
+      const leadIdsList = Array.from(selectedLeads.keys()).map(id => parseInt(id, 10) || id)
+      await API.post('/sms/campaign/create', {
+        campaign_name: form.campaign_name,
+        sms_template_body: form.sms_template_body,
+        lead_ids: leadIdsList
+      })
 
-      toast.success(`Successfully spawned ${selectedLeads.size} message tasks into outbox queue!`)
+      toast.success(`Strategy deployed! Background tasks are compiling customized drafts.`)
       setTimeout(onDone, 500)
     } catch (err) {
       console.error(err)
-      toast.error('Failed to compile cluster stream parameters.')
+      toast.error('Failed to initialize hardware pacing cluster matrices.')
     } finally {
       setLoading(false)
     }
   }
+
   return (
-    <div className="max-w-3xl bg-white border rounded-2xl p-6 space-y-4 mx-auto shadow-xs">
-      <h2 className="text-base font-black tracking-tight">Configure Hardware Pacing Cluster</h2>
-      <div className="space-y-4">
-        <div>
-          <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Campaign Identity Group</label>
-          <input className="w-full px-3 py-2 border rounded-xl text-xs" placeholder="e.g. SMS Cold Outreach - Analytics Setup" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
+    <div className="max-w-4xl bg-white border rounded-2xl p-6 space-y-4 mx-auto shadow-xs">
+      <h2 className="text-base font-black tracking-tight flex items-center gap-1"><Sparkles size={16} className="text-blue-500" /> Configure Hardware Pacing Cluster</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+        <div className="space-y-4">
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Daily Run Cap Allocation</label>
-            <input type="number" className="w-full px-3 py-2 border rounded-xl text-xs" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value ? parseInt(e.target.value) : 150 })} />
+            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Campaign Identity Group</label>
+            <input className="w-full px-3 py-2 border rounded-xl text-xs" placeholder="e.g. SMS Cold Outreach - Analytics Setup" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Daily Run Cap Allocation</label>
+              <input type="number" className="w-full px-3 py-2 border rounded-xl text-xs" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value ? parseInt(e.target.value) : 150 })} />
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Target Zone Threshold</label>
+              <select className="w-full px-3 py-2 border rounded-xl text-xs bg-white text-slate-700 font-medium" value={form.timezone} onChange={e => setForm({ ...form, timezone: e.target.value })}>
+                <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+              </select>
+            </div>
           </div>
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Target Zone Threshold</label>
-            <select className="w-full px-3 py-2 border rounded-xl text-xs bg-white text-slate-700 font-medium" value={form.timezone} onChange={e => setForm({ ...form, timezone: e.target.value })}>
-              <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
-            </select>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">SMS Base Blueprint Copy</label>
+            <textarea 
+              className="textarea h-24 font-mono text-xs w-full p-3 border rounded-xl" 
+              placeholder="Hi {lead_name}, we noticed {lead_company} matches our platform criteria. Let's chat!" 
+              value={form.sms_template_body} 
+              onChange={e => setForm({ ...form, sms_template_body: e.target.value })} 
+            />
+            <p className="text-[10px] text-slate-400 font-medium mt-1">✨ Injects company profile and product details asynchronously in background runs.</p>
+          </div>
+          <div className="border p-4 rounded-xl bg-slate-50/50"><CampaignLeadSelector selected={selectedLeads} onChange={setSelectedLeads} /></div>
+        </div>
+
+        {/* Right Flow Architecture Notice Panel */}
+        <div className="card bg-slate-50 border border-slate-200 p-5 space-y-4 rounded-2xl sticky top-4">
+          <div className="flex items-center gap-2 text-slate-800 font-bold text-xs uppercase tracking-wider">
+            <Zap size={14} className="text-blue-500" /> Pipeline Flow Management
+          </div>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Neolix has unified all outreach systems. When you launch this pacing matrix cluster, concurrent threads process the templates instantly.
+          </p>
+          <div className="bg-white p-3 border rounded-xl space-y-2 text-[11px] text-slate-600 font-medium">
+            <p>🟢 Step 1: Initialize baseline layouts and criteria.</p>
+            <p>🟡 Step 2: System generates background drafts securely inside holding layers.</p>
+            <p>🔵 Step 3: Use the Gateway Monitor table log list to edit or verify messages before mobile app syncing loops fetch them.</p>
           </div>
         </div>
-        <div className="border p-4 rounded-xl bg-slate-50/50"><CampaignLeadSelector selected={selectedLeads} onChange={setSelectedLeads} /></div>
-        <div className="flex gap-2 justify-end pt-2 border-t">
-          <button type="button" onClick={onBack} className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
-          <button type="button" onClick={handleCreate} disabled={loading} className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-xs">
-            {loading ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={13} />} Deploy Pacing Cluster
-          </button>
-        </div>
+      </div>
+
+      <div className="flex gap-2 justify-end pt-3 border-t">
+        <button type="button" onClick={onBack} className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
+        <button type="button" onClick={handleCreate} disabled={loading} className="px-5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-xs">
+          {loading ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={13} />} Deploy Strategy Matrix
+        </button>
       </div>
     </div>
   )
 }
 
-function MainSMSDashboard({ onStartCampaign, metrics, logs }) {
+function MainSMSDashboard({ onStartCampaign, metrics, logs, refreshDashboard }) {
   const [newNodeId, setNewNodeId] = useState('')
   const [nodes, setNodes] = useState([])
   const [showInstructions, setShowInstructions] = useState(false)
@@ -448,7 +593,9 @@ function MainSMSDashboard({ onStartCampaign, metrics, logs }) {
             )}
           </div>
         </div>
-        <div className="lg:col-span-2"><SMSQueueTable logs={logs} /></div>
+        <div className="lg:col-span-2">
+          <SMSQueueTable logs={logs} onRefresh={refreshDashboard} />
+        </div>
       </div>
     </div>
   )
@@ -717,7 +864,7 @@ function RepliesTab() {
 }
 
 export default function SMSPage() {
-  const [view, setView] = useState('list') // list | create | replies
+  const [view, setView] = useState('list') 
   const [metrics, setMetrics] = useState({ pending_count: 0, processing_count: 0, sent_today: 0, daily_limit: 150 })
   const [logs, setLogs] = useState([])
 
