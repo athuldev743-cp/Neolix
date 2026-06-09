@@ -1,125 +1,111 @@
-import { BrowserRouter, Routes, Route, Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster, toast } from 'react-hot-toast';
 import { useState, useEffect, useCallback, createContext, useContext } from 'react';
-import axios from 'axios';
-import { 
-  LogIn, Sparkles, ShieldCheck, Loader2, LayoutDashboard, Mail, Phone, MessageSquare, 
-  Settings, LogOut, RefreshCw, Plus, ChevronLeft, Eye, Zap, X, Check, CheckCheck, 
-  Search, Reply, FileText, Image, PenLine, AlertTriangle, Link2, Save, Info, Smartphone, Edit3, ArrowRight
-} from 'lucide-react';
+import { Loader2, User, Building2, Server, Sparkles, PenLine, Check, Save, Mail, RefreshCw, Link2, AlertTriangle, Info } from 'lucide-react';
 
-// ── 🌐 MOCK SERVICE LOGIC (Consolidated) ──────────────────────────────────
-const api = axios.create({ baseURL: 'https://neolix-neolix-backend.hf.space/api/v1', timeout: 30000 });
-
-export const profileApi = {
-  get: () => api.get('/profile'),
-  update: (data) => api.patch('/profile', data),
+// ── MOCK SERVICES ────────────────────────────────────────────────────────────
+const mockProfileApi = {
+  get: async () => ({
+    data: {
+      id: "getomniagent@gmail.com",
+      full_name: "Athul Dev",
+      designation: "Founder",
+      company_name: "Neolix Hub",
+      company_tagline: "Autonomous Omnichannel Sales & Outreach",
+      industry: "B2B SaaS",
+      website: "https://neolix.co",
+      email: "admin.neolix@gmail.com",
+      phone: "+91 98765 43210",
+      city: "Kochi",
+      country: "India",
+      linkedin_url: "https://linkedin.com/in/athuldev",
+      preferred_tone: "professional",
+      intro_line: "Hi {lead_name}, noticed your team at {lead_company}...",
+      value_proposition: "We help firms automate outreach operations...",
+      email_signature_html: "<p>Best regards,<br/><strong>Athul Dev</strong></p>",
+      product_description: "Core automated lead scraping modules with dynamic B2B multi-tenant setup engines.",
+      google_oauth: { status: "connected", connected_email: "admin.neolix@gmail.com" }
+    }
+  }),
+  update: async (data) => ({ data })
 };
 
-export const campaignApi = {
-  list: () => api.get('/campaigns/list'),
-  get: (id) => api.get(`/campaigns/${id}`),
-  create: (data) => api.post('/campaigns/create', data),
-  preview: (data) => api.post('/campaigns/preview', data),
-};
+export const ProfileContext = createContext(null);
 
-export const waApi = {
-  status: () => api.get('/whatsapp/status'),
-  campaignList: () => api.get('/whatsapp/campaign/list'),
-  campaignDetail: (id) => api.get(`/whatsapp/campaign/${id}`),
-  campaignCreate: (data) => api.post('/whatsapp/campaign/create', data),
-};
+// ── COMPONENTS (Consolidated) ────────────────────────────────────────────────
 
-export const repliesApi = {
-  inbox: () => api.get('/replies/inbox'),
-  thread: (id) => api.get(`/replies/${id}`),
-  respond: (id, data) => api.post(`/replies/${id}/respond`, data),
-};
-
-// ── 🧩 PLACEHOLDER PAGES (Consolidated) ──────────────────────────────────
-const DashboardPage = () => <div className="p-8 text-2xl font-bold">Dashboard (Placeholder)</div>;
-const EmailPage = () => <div className="p-8 text-2xl font-bold">Email Outreach (Placeholder)</div>;
-const WhatsAppPage = () => <div className="p-8 text-2xl font-bold">WhatsApp Outreach (Placeholder)</div>;
-const SMSPage = () => <div className="p-8 text-2xl font-bold">SMS Gateway (Placeholder)</div>;
-
-// ── 🎛️ SHARED LAYOUT ──────────────────────────────────────────────────────
-function Layout() {
-  const { profile, setActiveUserEmail } = useContext(ProfileContext);
+function SettingsPage() {
+  const { profile, refreshProfile } = useContext(ProfileContext);
   const navigate = useNavigate();
-  
-  const navItems = [
-    { to: '/', label: 'Dashboard', icon: LayoutDashboard },
-    { to: '/email', label: 'Email', icon: Mail },
-    { to: '/whatsapp', label: 'WhatsApp', icon: MessageSquare },
-    { to: '/sms', label: 'SMS', icon: Phone },
-    { to: '/settings', label: 'Settings', icon: Settings },
-  ];
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (profile) setForm(profile);
+  }, [profile]);
+
+  const saveProfile = async () => {
+    setSaving(true);
+    try {
+      await mockProfileApi.update(form);
+      await refreshProfile();
+      toast.success('Profile saved!');
+      navigate('/');
+    } catch (err) {
+      toast.error('Failed to save settings.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div className="flex h-screen bg-slate-50">
-      <aside className="w-64 bg-slate-900 text-slate-300 flex flex-col p-6">
-        <div className="text-xl font-black text-slate-100 mb-8">⚡ NEOLIX HUB</div>
-        <nav className="space-y-2">
-          {navItems.map(item => (
-            <NavLink key={item.to} to={item.to} end className={({ isActive }) => `flex items-center gap-3 px-4 py-2.5 rounded-xl text-xs font-semibold ${isActive ? 'bg-blue-600 text-white' : 'hover:bg-slate-800'}`}>
-              <item.icon size={15} /> {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
-      <main className="flex-1 overflow-y-auto p-8"><Outlet /></main>
+    <div className="p-8 text-white">
+      <h1 className="text-2xl font-bold mb-4">Settings</h1>
+      <div className="space-y-4">
+        <input className="block w-full p-2 bg-slate-800 rounded" value={form.full_name || ''} onChange={e => setForm({...form, full_name: e.target.value})} placeholder="Name" />
+        <button onClick={saveProfile} className="px-4 py-2 bg-blue-600 rounded">
+          {saving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
     </div>
   );
 }
 
-// ── 🏎️ APP BOOTSTRAP ──────────────────────────────────────────────────────
-export const ProfileContext = createContext(null);
+function DashboardPage() { return <div className="p-8 text-white">Dashboard Content</div>; }
+function EmailPage() { return <div className="p-8 text-white">Email Page</div>; }
+function WhatsAppPage() { return <div className="p-8 text-white">WhatsApp Page</div>; }
+function SMSPage() { return <div className="p-8 text-white">SMS Page</div>; }
+function Layout() { return <div className="min-h-screen bg-slate-950 text-white"><Routes><Route path="*" element={<div>Layout Wrapper</div>} /></Routes></div>; }
+
+// ── APP ROOT ─────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeUserEmail, setActiveUserEmail] = useState(() => localStorage.getItem('neolix_auth_email') || '');
-
-  useEffect(() => {
-    const requestInterceptor = api.interceptors.request.use((config) => {
-      if (activeUserEmail) config.headers['X-User-Email'] = activeUserEmail;
-      return config;
-    });
-    return () => api.interceptors.request.eject(requestInterceptor);
-  }, [activeUserEmail]);
 
   const refreshProfile = useCallback(async () => {
-    if (!activeUserEmail) { setLoading(false); return; }
     try {
-      const { data } = await profileApi.get();
+      const { data } = await mockProfileApi.get();
       setProfile(data);
-    } catch (e) {
-      console.error('Profile fetch failed', e);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeUserEmail]);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
+  }, []);
 
   useEffect(() => { refreshProfile(); }, [refreshProfile]);
 
-  if (!activeUserEmail) return <div className="h-screen flex items-center justify-center bg-slate-950 text-white"><button onClick={() => window.location.href = 'https://neolix-neolix-backend.hf.space/api/v1/auth/google/login'} className="bg-blue-600 px-6 py-3 rounded-xl font-bold">Sign in with Google</button></div>;
-  if (loading) return <div className="h-screen flex items-center justify-center"><Loader2 className="animate-spin text-blue-500" /></div>;
-
-  const isOnboarded = !!(profile?.company_name?.trim() && profile?.product_description?.trim());
+  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-950 text-white"><Loader2 className="animate-spin" /></div>;
 
   return (
-    <ProfileContext.Provider value={{ profile, setProfile, refreshProfile, loading, activeUserEmail, setActiveUserEmail }}>
+    <ProfileContext.Provider value={{ profile, setProfile, refreshProfile }}>
       <BrowserRouter>
         <Toaster position="top-right" />
         <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={isOnboarded ? <DashboardPage /> : <Navigate to="/settings" replace />} />
-            <Route path="/email/*" element={isOnboarded ? <EmailPage /> : <Navigate to="/settings" replace />} />
-            <Route path="/whatsapp/*" element={isOnboarded ? <WhatsAppPage /> : <Navigate to="/settings" replace />} />
-            <Route path="/sms/*" element={isOnboarded ? <SMSPage /> : <Navigate to="/settings" replace />} />
-            <Route path="/settings" element={<div className="p-8 text-xl font-bold">Settings (Placeholders)</div>} />
+            <Route path="/" element={<DashboardPage />} />
+            <Route path="/email" element={<EmailPage />} />
+            <Route path="/whatsapp" element={<WhatsAppPage />} />
+            <Route path="/sms" element={<SMSPage />} />
+            <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
         </Routes>
       </BrowserRouter>
     </ProfileContext.Provider>
