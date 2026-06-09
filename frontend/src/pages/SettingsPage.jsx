@@ -1,6 +1,6 @@
 import { useState, useContext, useEffect } from 'react'
 import {
-  User, Building2, Server, MapPin, Sparkles,
+  User, Building2, Server, MapPin, Sparkles, PenLine,
   Check, Loader2, Save, Mail, RefreshCw, Link2, AlertTriangle
 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -65,6 +65,10 @@ export default function SettingsPage() {
       intro_line:           profile.intro_line           || '',
       value_proposition:    profile.value_proposition    || '',
       email_signature_html: profile.email_signature_html || '',
+      // ✅ Bind Product properties safely on mount
+      product_description:  profile.product_description  || '',
+      product_photos:       profile.product_photos       || [],
+      product_pdfs:         profile.product_pdfs         || [],
     })
   }, [profile])
 
@@ -85,7 +89,6 @@ export default function SettingsPage() {
     }
   }
 
-  // ✅ Triggers the dynamic login loop backend endpoint redirection path natively
   const triggerGoogleOAuthLink = () => {
     const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://neolix-neolix-backend.hf.space/api/v1'
     window.location.href = `${apiBaseUrl}/auth/google/login`
@@ -105,7 +108,8 @@ export default function SettingsPage() {
     form.designation && `Title: ${form.designation}`,
     form.company_name && `Company: ${form.company_name}`,
     form.company_tagline && `What we do: ${form.company_tagline}`,
-    form.value_proposition && `Value prop: ${form.value_proposition?.slice(0, 80)}…`,
+    form.product_description && `Product: ${form.product_description?.slice(0, 40)}…`,
+    form.value_proposition && `Value prop: ${form.value_proposition?.slice(0, 60)}…`,
   ].filter(Boolean).join(' · ')
 
   return (
@@ -132,7 +136,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ✅ Upgraded Passwordless Channel Integration Module Panel */}
+      {/* Google API Integration Gateway */}
       <Section title="Google API Integration Gateway" icon={Server} desc="Connect your account via direct Google APIs. No manual passwords required.">
         {isGmailConnected ? (
           <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
@@ -184,9 +188,11 @@ export default function SettingsPage() {
           <F label="Country">
             <input className="input" value={form.country||''} onChange={e => set('country', e.target.value)} placeholder="India" />
           </F>
-          <F label="LinkedIn URL">
-            <input className="input" value={form.linkedin_url||''} onChange={e => set('linkedin_url', e.target.value)} placeholder="https://linkedin.com/in/you" />
-          </F>
+          <div className="col-span-2">
+            <F label="LinkedIn URL">
+              <input className="input" value={form.linkedin_url||''} onChange={e => set('linkedin_url', e.target.value)} placeholder="https://linkedin.com/in/you" />
+            </F>
+          </div>
         </div>
       </Section>
 
@@ -209,6 +215,26 @@ export default function SettingsPage() {
             <F label="Website">
               <input className="input" value={form.website||''} onChange={e => set('website', e.target.value)} placeholder="https://yourdomain.com" />
             </F>
+          </div>
+        </div>
+      </Section>
+
+      {/* ── ✅ NEW: Product Showcase Builder ── */}
+      <Section title="Product Showcase Builder" icon={PenLine} desc="Detailed parameters injected into Day 3 follow-ups of your 9-Day Campaign sequences">
+        <div className="space-y-4">
+          <F label="Product/Service Description" hint="Provide explicit specifications. The AI scans this context to construct your pitch copies.">
+            <textarea className="textarea h-28" value={form.product_description||''} onChange={e => set('product_description', e.target.value)}
+              placeholder="Enter item configurations, technical specifications, or specialized service tiers..." />
+          </F>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="p-4 border border-dashed border-slate-200 rounded-xl bg-slate-50/50 text-center">
+              <p className="text-xs font-semibold text-slate-600">Product Photos</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">{form.product_photos?.length || 0} assets uploaded</p>
+            </div>
+            <div className="p-4 border border-dashed border-slate-200 rounded-xl bg-slate-50/50 text-center">
+              <p className="text-xs font-semibold text-slate-600">Brochure PDFs</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">{form.product_pdfs?.length || 0} specifications loaded</p>
+            </div>
           </div>
         </div>
       </Section>
