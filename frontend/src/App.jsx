@@ -128,6 +128,7 @@ export default function App() {
     const emailPayload = urlParams.get('email')
 
     if (loginSuccess === 'true' && emailPayload) {
+      // ✅ Fixed: Changed Python .lower() to JavaScript .toLowerCase()
       const cleanEmail = emailPayload.trim().toLowerCase()
       localStorage.setItem('neolix_auth_email', cleanEmail)
       setActiveUserEmail(cleanEmail)
@@ -173,6 +174,9 @@ export default function App() {
 
   if (waking && loading) return <WakingUp />
 
+  // Dynamic evaluation for onboarding check gates
+  const isOnboarded = !!(profile && profile.company_name && profile.product_description);
+
   return (
     <ProfileContext.Provider value={{ profile, setProfile, refreshProfile, loading, activeUserEmail, setActiveUserEmail }}>
       <BrowserRouter>
@@ -190,10 +194,13 @@ export default function App() {
         />
         <Routes>
           <Route element={<Layout />}>
-            <Route path="/"           element={<DashboardPage />} />
-            <Route path="/email/*"    element={<EmailPage />} />
-            <Route path="/whatsapp/*" element={<WhatsAppPage />} />
-            <Route path="/sms/*"      element={<SMSPage />} /> 
+            {/* If not onboarded, redirect all root requests straight to the profile onboarding view step */}
+            <Route path="/"           element={isOnboarded ? <DashboardPage /> : <Navigate to="/profile" replace />} />
+            <Route path="/email/*"    element={isOnboarded ? <EmailPage /> : <Navigate to="/profile" replace />} />
+            <Route path="/whatsapp/*" element={isOnboarded ? <WhatsAppPage /> : <Navigate to="/profile" replace />} />
+            <Route path="/sms/*"      element={isOnboarded ? <SMSPage /> : <Navigate to="/profile" replace />} /> 
+            
+            {/* The Unified Settings & Profile Onboarding Hub */}
             <Route path="/settings"   element={<SettingsPage />} />
             <Route path="/profile"    element={<SettingsPage />} />
             <Route path="*"           element={<Navigate to="/" replace />} />
