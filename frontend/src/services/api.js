@@ -2,7 +2,8 @@ import axios from 'axios'
 
 const BASE = import.meta.env.VITE_API_URL || 'https://neolix-neolix-backend.hf.space/api/v1'
 
-const api = axios.create({
+// ✅ Explicitly named export instance for App.jsx interceptor matching
+export const api = axios.create({
   baseURL: BASE,
   timeout: 120000,
 })
@@ -25,18 +26,19 @@ api.interceptors.response.use(
   }
 )
 
-// ── Profile ───────────────────────────────────────────────────────────────────
+// ── Profile (OAuth & Multi-Tenant Adaptations) ────────────────────────────────
 export const profileApi = {
   get:        ()     => api.get('/profile'),
   update:     (data) => api.patch('/profile', data),
-  updateSmtp: (data) => api.put('/profile/smtp', data),
-  testSmtp:   ()     => api.post('/profile/smtp/test'),
   getContext: ()     => api.get('/profile/context'),
+  
+  // ✅ Upgraded: Syncs combined Android hardware gateway node metadata rules cleanly
+  updateSmsGateway: (data) => api.put('/profile/sms', data),
 }
 
 // ── Leads ─────────────────────────────────────────────────────────────────────
 export const leadsApi = {
-  // ✅ Upgraded: Transmits channel context and dual-validation requirements to leads.py query parser
+  // Transmits channel context and dual-validation requirements to leads.py query parser
   search: (q, limit = 50, channelContext = 'email', requiredChannels = 'email') => 
     api.get('/leads/search', { params: { q, limit, channel_context: channelContext, required_channels: requiredChannels } }),
   

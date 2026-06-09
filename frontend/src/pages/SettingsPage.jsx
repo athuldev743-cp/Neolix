@@ -1,7 +1,7 @@
 import { useState, useContext, useEffect } from 'react'
 import {
-  User, Building2, PenLine, Server, MapPin, Sparkles,
-  Check, Loader2, Eye, EyeOff, Save, Mail, RefreshCw
+  User, Building2, Server, MapPin, Sparkles,
+  Check, Loader2, Save, Mail, RefreshCw, Link2, AlertTriangle
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { profileApi } from '../services/api'
@@ -44,12 +44,8 @@ function F({ label, hint, children }) {
 export default function SettingsPage() {
   const { profile, refreshProfile } = useContext(ProfileContext)
   const [form, setForm]     = useState({})
-  const [smtp, setSmtp]     = useState({ host:'smtp.gmail.com', port:587, user:'', password:'', from_name:'', use_tls:true })
-  const [saving, setSaving]         = useState(false)
-  const [savingSmtp, setSavingSmtp] = useState(false)
-  const [testing, setTesting]       = useState(false)
-  const [showPass, setShowPass]     = useState(false)
-  const [saved, setSaved]           = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved]   = useState(false)
 
   useEffect(() => {
     if (!profile) return
@@ -70,16 +66,6 @@ export default function SettingsPage() {
       value_proposition:    profile.value_proposition    || '',
       email_signature_html: profile.email_signature_html || '',
     })
-    if (profile.smtp?.user) {
-      setSmtp({
-        host:      profile.smtp.host      || 'smtp.gmail.com',
-        port:      profile.smtp.port      || 587,
-        user:      profile.smtp.user      || '',
-        password:  profile.smtp.password  || '',
-        from_name: profile.smtp.from_name || '',
-        use_tls:   profile.smtp.use_tls   ?? true,
-      })
-    }
   }, [profile])
 
   const set = (k, v) => { setForm(p => ({...p, [k]: v})); setSaved(false) }
@@ -92,22 +78,17 @@ export default function SettingsPage() {
       toast.success('Profile saved — AI will use your updated context!')
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
-    } catch { toast.error('Failed to save') } finally { setSaving(false) }
+    } catch { 
+      toast.error('Failed to save profile context configurations') 
+    } finally { 
+      setSaving(false) 
+    }
   }
 
-  const saveSmtp = async () => {
-    setSavingSmtp(true)
-    try { await profileApi.updateSmtp(smtp); await refreshProfile(); toast.success('SMTP saved!') }
-    catch { toast.error('Failed to save SMTP') } finally { setSavingSmtp(false) }
-  }
-
-  const testSmtp = async () => {
-    setTesting(true)
-    try {
-      const { data } = await profileApi.testSmtp()
-      if (data.ok) toast.success(`✓ Connected: ${data.message}`)
-      else toast.error(`Failed: ${data.error}`)
-    } catch { toast.error('Test failed — check credentials') } finally { setTesting(false) }
+  // ✅ Triggers the dynamic login loop backend endpoint redirection path natively
+  const triggerGoogleOAuthLink = () => {
+    const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://neolix-neolix-backend.hf.space/api/v1'
+    window.location.href = `${apiBaseUrl}/auth/google/login`
   }
 
   if (!profile) return (
@@ -116,7 +97,9 @@ export default function SettingsPage() {
     </div>
   )
 
-  // Context preview string shown at top
+  const isGmailConnected = profile.google_oauth?.status === 'connected'
+  const connectedEmail = profile.google_oauth?.connected_email
+
   const ctxPreview = [
     form.full_name && `Name: ${form.full_name}`,
     form.designation && `Title: ${form.designation}`,
@@ -148,6 +131,37 @@ export default function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* ✅ Upgraded Passwordless Channel Integration Module Panel */}
+      <Section title="Google API Integration Gateway" icon={Server} desc="Connect your account via direct Google APIs. No manual passwords required.">
+        {isGmailConnected ? (
+          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+              <div>
+                <p className="text-xs font-bold text-emerald-800">Direct Gmail API Connected</p>
+                <p className="text-[11px] text-emerald-600">Outbound tracking campaigns sending smoothly via: <span className="font-semibold">{connectedEmail}</span></p>
+              </div>
+            </div>
+            <button onClick={triggerGoogleOAuthLink} className="text-[11px] font-bold text-slate-600 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 hover:bg-slate-50 transition-colors flex items-center gap-1 shadow-3xs">
+              <RefreshCw size={11} /> Re-link Account
+            </button>
+          </div>
+        ) : (
+          <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl space-y-3">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-xs font-bold text-amber-800">Gmail Outreach Delivery Interrupted</p>
+                <p className="text-[11px] text-amber-600 leading-relaxed">You haven't linked your Google API workspace node yet. Connect your email to activate automated outreach delivery campaigns instantly.</p>
+              </div>
+            </div>
+            <button type="button" onClick={triggerGoogleOAuthLink} className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white rounded-xl py-2 px-4 font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-sm">
+              <Link2 size={13} strokeWidth={2.5} /> Authorize Direct Gmail API Channel
+            </button>
+          </div>
+        )}
+      </Section>
 
       {/* ── Identity ── */}
       <Section title="Your Identity" icon={User} desc="Used as sender in every generated message">
@@ -200,16 +214,12 @@ export default function SettingsPage() {
       </Section>
 
       {/* ── AI Copy ── */}
-      <Section title="AI Outreach Copy" icon={Sparkles}
-        desc="These are the most important fields — AI uses them to write personalised emails and WhatsApp messages">
+      <Section title="AI Outreach Copy" icon={Sparkles} desc="These are the most important fields — AI uses them to write personalised emails and WhatsApp messages">
         <F label="Preferred tone" hint="Sets writing style for all AI-generated messages">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1.5">
             {TONES.map(t => (
-              <button key={t.value} onClick={() => set('preferred_tone', t.value)}
-                className={`p-3 rounded-xl border text-left transition-all
-                  ${form.preferred_tone===t.value
-                    ? 'bg-blue-500 text-white border-blue-500 shadow-sm'
-                    : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
+              <button key={t.value} type="button" onClick={() => set('preferred_tone', t.value)}
+                className={`p-3 rounded-xl border text-left transition-all ${form.preferred_tone===t.value ? 'bg-blue-500 text-white border-blue-500 shadow-sm' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'}`}>
                 <p className="text-sm font-semibold">{t.label}</p>
                 <p className={`text-[10px] mt-0.5 ${form.preferred_tone===t.value ? 'text-blue-100' : 'text-slate-400'}`}>{t.desc}</p>
               </button>
@@ -218,86 +228,33 @@ export default function SettingsPage() {
         </F>
 
         <F label="Intro line" hint="How you open cold outreach — AI uses this verbatim to start emails">
-          <textarea className="textarea h-16" value={form.intro_line||''} onChange={e => set('intro_line', e.target.value)}
-            placeholder="I'm reaching out because I noticed your company is actively growing in the automotive sector…" />
+          <textarea className="textarea h-16" value={form.intro_line||''} onChange={e => set('intro_line', e.target.value)} placeholder="I'm reaching out because I noticed your company is actively growing in the automotive sector…" />
         </F>
 
         <F label="Value proposition" hint="What you offer — the core pitch woven into every message by AI">
-          <textarea className="textarea h-28" value={form.value_proposition||''} onChange={e => set('value_proposition', e.target.value)}
-            placeholder="We help automotive parts dealers increase their B2B sales by 30% through automated outreach to garages and service centres. Our platform identifies high-intent buyers and sends personalised follow-ups at scale." />
+          <textarea className="textarea h-28" value={form.value_proposition||''} onChange={e => set('value_proposition', e.target.value)} placeholder="We help automotive parts dealers increase their B2B sales by 30% through automated outreach..." />
         </F>
       </Section>
 
       {/* ── Email Signature ── */}
       <Section title="Email Signature" icon={Mail} desc="Appended to every outbound email automatically">
         <F label="Signature HTML">
-          <textarea className="textarea h-24 font-mono text-xs" value={form.email_signature_html||''} onChange={e => set('email_signature_html', e.target.value)}
-            placeholder={'<p>Best regards,<br/><strong>John Smith</strong><br/>Business Development · Acme Corp<br/>+91 98765 43210</p>'} />
+          <textarea className="textarea h-24 font-mono text-xs" value={form.email_signature_html||''} onChange={e => set('email_signature_html', e.target.value)} placeholder={'<p>Best regards,<br/><strong>John Smith</strong></p>'} />
         </F>
         {form.email_signature_html && (
           <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
             <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-wide mb-2">Preview</p>
-            <div className="text-sm text-slate-700 leading-relaxed"
-              dangerouslySetInnerHTML={{ __html: form.email_signature_html }} />
+            <div className="text-sm text-slate-700 leading-relaxed" dangerouslySetInnerHTML={{ __html: form.email_signature_html }} />
           </div>
         )}
       </Section>
 
-      {/* Save button */}
-      <div className="flex justify-end pb-2">
+      <div className="flex justify-end pb-6">
         <button onClick={saveProfile} disabled={saving} className="btn-primary px-8">
           {saving ? <Loader2 size={15} className="animate-spin" /> : saved ? <Check size={15} /> : <Save size={15} />}
           {saving ? 'Saving…' : saved ? 'Saved!' : 'Save profile'}
         </button>
       </div>
-
-      {/* ── SMTP ── */}
-      <Section title="SMTP / Email" icon={Server} desc="Env vars on Render take priority — use this to test or override">
-        <div className="grid grid-cols-2 gap-4">
-          <F label="SMTP Host">
-            <input className="input" value={smtp.host} onChange={e => setSmtp(p => ({...p, host:e.target.value}))} placeholder="smtp.gmail.com" />
-          </F>
-          <F label="Port">
-            <input className="input" type="number" value={smtp.port} onChange={e => setSmtp(p => ({...p, port:parseInt(e.target.value)}))} />
-          </F>
-          <F label="Username / Email">
-            <input className="input" type="email" value={smtp.user} onChange={e => setSmtp(p => ({...p, user:e.target.value}))} placeholder="you@gmail.com" />
-          </F>
-          <F label="App password">
-            <div className="relative">
-              <input className="input pr-10" type={showPass?'text':'password'}
-                value={smtp.password} onChange={e => setSmtp(p => ({...p, password:e.target.value}))}
-                placeholder="Gmail app-specific password" />
-              <button onClick={() => setShowPass(p => !p)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                {showPass ? <EyeOff size={14} /> : <Eye size={14} />}
-              </button>
-            </div>
-          </F>
-          <F label="From name">
-            <input className="input" value={smtp.from_name} onChange={e => setSmtp(p => ({...p, from_name:e.target.value}))} placeholder="John from Acme" />
-          </F>
-          <F label="Encryption">
-            <div className="flex items-center gap-3 mt-2">
-              <button onClick={() => setSmtp(p => ({...p, use_tls:!p.use_tls}))}
-                className={`w-11 h-6 rounded-full relative transition-all flex-shrink-0 ${smtp.use_tls?'bg-blue-500':'bg-slate-200'}`}>
-                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${smtp.use_tls?'left-5':'left-0.5'}`} />
-              </button>
-              <span className="text-sm text-slate-600">{smtp.use_tls ? 'STARTTLS (port 587)' : 'Plain (port 25)'}</span>
-            </div>
-          </F>
-        </div>
-        <div className="flex gap-3 pt-2">
-          <button onClick={saveSmtp} disabled={savingSmtp} className="btn-primary">
-            {savingSmtp ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            {savingSmtp ? 'Saving…' : 'Save SMTP'}
-          </button>
-          <button onClick={testSmtp} disabled={testing} className="btn-secondary">
-            {testing ? <Loader2 size={14} className="animate-spin" /> : <Server size={14} />}
-            {testing ? 'Testing…' : 'Test connection'}
-          </button>
-        </div>
-      </Section>
     </div>
   )
 }
