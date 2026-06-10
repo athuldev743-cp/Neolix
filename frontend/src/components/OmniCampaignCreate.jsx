@@ -26,7 +26,7 @@ export default function OmniCampaignCreate({ onBack, onDone }) {
           waApi.status()
         ])
 
-        const hasEmail = profRes.status === 'fulfilled' && !!profRes.value.data?.smtp?.host
+        const hasEmail = profRes.status === 'fulfilled' && !!profRes.value.data?.google_oauth?.connected_email
         const hasWA = waRes.status === 'fulfilled' && !!waRes.value.data?.connected
 
         setGateways({
