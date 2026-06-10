@@ -4,6 +4,7 @@ import {
   Check, Loader2, Save, Mail, RefreshCw, Link2, AlertTriangle, Info
 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { useNavigate } from 'react-router-dom'
 
 // ── HYBRID SANDBOX / PRODUCTION RESOLVER ──────────────────────────────────────
 // This pattern prevents compilation errors in standalone previews while
@@ -103,7 +104,7 @@ export default function SettingsPage() {
   const [form, setForm]     = useState({})
   const [saving, setSaving] = useState(false)
   const [saved, setSaved]   = useState(false)
-
+  const navigate = useNavigate()
   useEffect(() => {
     const loadProfileData = async () => {
       try {
@@ -137,20 +138,26 @@ export default function SettingsPage() {
 
   const set = (k, v) => { setForm(p => ({...p, [k]: v})); setSaved(false) }
 
-  const saveProfile = async () => {
-    setSaving(true)
-    try {
-      await activeProfileApi.update(form)
-      await refreshProfile()
-      toast.success('Profile saved — AI will use your updated context!')
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
-    } catch { 
-      toast.error('Failed to save profile context configurations') 
-    } finally { 
-      setSaving(false) 
-    }
+ const saveProfile = async () => {
+  setSaving(true)
+  try {
+    await activeProfileApi.update(form)
+    await refreshProfile()                  // ← updates profile state in context
+    toast.success('Profile saved!')
+    setSaved(true)
+    setTimeout(() => setSaved(false), 3000)
+
+    // Navigate to dashboard — App re-renders with fresh profile,
+    // isOnboarded will now be true, so the route allows it through
+    const filled = !!(form.company_name?.trim() && form.product_description?.trim())
+    if (filled) navigate('/')
+
+  } catch {
+    toast.error('Failed to save profile')
+  } finally {
+    setSaving(false)
   }
+}
 
   const triggerGoogleOAuthLink = () => {
     // Safely reads global process variables to avoid es2015 import.meta.env exceptions

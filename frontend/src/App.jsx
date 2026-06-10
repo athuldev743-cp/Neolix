@@ -1,37 +1,26 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { useState, useEffect, useCallback, createContext } from 'react';
+import { Loader2 } from 'lucide-react';
 import Layout from './components/layout/Layout';
 import DashboardPage from './pages/DashboardPage';
 import EmailPage from './pages/EmailPage';
 import WhatsAppPage from './pages/WhatsAppPage';
 import SMSPage from './pages/SMSPage';
 import SettingsPage from './pages/SettingsPage';
+import AuthPage from './pages/AuthPage';
 import { profileApi, api } from './services/api';
-import { Loader2 } from 'lucide-react';
 
-// EXPORTED: This allows SettingsPage to import it
 export const ProfileContext = createContext(null);
 
-const apiBaseUrl = 'https://neolix-neolix-backend.hf.space/api/v1';
-
-function LoginPage() {
-  const handleGoogleLogin = () => window.location.href = `${apiBaseUrl}/auth/google/login`;
-  return (
-    <div className="login-screen-container">
-      <div className="login-card">
-        <h1>Welcome to Neolix Hub</h1>
-        <button onClick={handleGoogleLogin}>Sign in with Google</button>
-      </div>
-    </div>
-  );
-}
-
-export default function App() {
+function AppRoutes() {
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeUserEmail, setActiveUserEmail] = useState(() => localStorage.getItem('neolix_auth_email') || '');
+  const [activeUserEmail, setActiveUserEmail] = useState(
+    () => localStorage.getItem('neolix_auth_email') || ''
+  );
 
+  // Attach email header to every API request
   useEffect(() => {
     const interceptor = api.interceptors.request.use((config) => {
       if (activeUserEmail) config.headers['X-User-Email'] = activeUserEmail;
@@ -40,14 +29,15 @@ export default function App() {
     return () => api.interceptors.request.eject(interceptor);
   }, [activeUserEmail]);
 
+  // Pick up ?email= from Google OAuth redirect
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.search);
-    const email = urlParams.get('email');
+    const params = new URLSearchParams(window.location.search);
+    const email = params.get('email');
     if (email) {
-      const cleanEmail = email.trim().toLowerCase();
-      localStorage.setItem('neolix_auth_email', cleanEmail);
-      setActiveUserEmail(cleanEmail);
-      window.history.replaceState({}, document.title, window.location.pathname);
+      const clean = email.trim().toLowerCase();
+      localStorage.setItem('neolix_auth_email', clean);
+      setActiveUserEmail(clean);
+      window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
 
@@ -56,32 +46,74 @@ export default function App() {
     try {
       const { data } = await profileApi.get();
       setProfile(data);
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoading(false);
+    }
   }, [activeUserEmail]);
 
   useEffect(() => { refreshProfile(); }, [refreshProfile]);
 
-  if (loading) return <div className="loading-screen"><Loader2 className="animate-spin" /></div>;
-  if (!activeUserEmail) return <LoginPage />;
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <Loader2 className="animate-spin text-blue-500" size={32} />
+      </div>
+    );
+  }
 
-  const isOnboarded = !!(profile?.company_name?.trim() && profile?.product_description?.trim());
+  // Not logged in → show auth page (outside Layout, no sidebar)
+  if (!activeUserEmail) {
+    return (
+      <Routes>
+        <Route path="*" element={<AuthPage />} />
+      </Routes>
+    );
+  }
+
+  // KEY FIX: isOnboarded derived fresh from latest profile on every render
+  const isOnboarded = !!(
+    profile?.company_name?.trim() &&
+    profile?.product_description?.trim()
+  );
 
   return (
-    <ProfileContext.Provider value={{ profile, setProfile, refreshProfile, activeUserEmail }}>
-      <BrowserRouter>
-        <Toaster position="top-right" />
-        <Routes>
-          <Route element={<Layout />}>
-            <Route path="/" element={isOnboarded ? <DashboardPage /> : <Navigate to="/settings" replace />} />
-            <Route path="/email/*" element={isOnboarded ? <EmailPage /> : <Navigate to="/settings" replace />} />
-            <Route path="/whatsapp/*" element={isOnboarded ? <WhatsAppPage /> : <Navigate to="/settings" replace />} />
-            <Route path="/sms/*" element={isOnboarded ? <SMSPage /> : <Navigate to="/settings" replace />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+    <ProfileContext.Provider value={{ profile, setProfile, refreshProfile, activeUserEmail, isOnboarded }}>
+      <Routes>
+        <Route element={<Layout />}>
+          {/* Root: onboarded → dashboard, else → settings */}
+          <Route
+            path="/"
+            element={isOnboarded ? <DashboardPage /> : <Navigate to="/settings" replace />}
+          />
+          {/* Protected routes: require onboarding */}
+          <Route
+            path="/email/*"
+            element={isOnboarded ? <EmailPage /> : <Navigate to="/settings" replace />}
+          />
+          <Route
+            path="/whatsapp/*"
+            element={isOnboarded ? <WhatsAppPage /> : <Navigate to="/settings" replace />}
+          />
+          <Route
+            path="/sms/*"
+            element={isOnboarded ? <SMSPage /> : <Navigate to="/settings" replace />}
+          />
+          {/* Settings always accessible */}
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
     </ProfileContext.Provider>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Toaster position="top-right" />
+      <AppRoutes />
+    </BrowserRouter>
   );
 }
