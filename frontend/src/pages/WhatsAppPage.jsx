@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Inbox, RefreshCw, Plus, Loader2, ChevronLeft,
-  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight
+  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight, Mic
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi, repliesApi, api } from '../services/api'
 import LeadSelector from '../components/LeadSelector'
 import { useUnreadReplies } from '../hooks/useUnreadReplies'
-
+import { profileApi } from '../services/api'
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const statusBadge = { 
   generating: 'bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2.5 py-0.5 rounded-full text-[10px] font-bold animate-pulse',
@@ -337,25 +337,51 @@ function CampaignCreate({ onBack, onDone }) {
     return saved ? JSON.parse(saved) : { hook: '', detailed: '', image: '' }
   })
 
-  const [imageUrl, setImageUrl] = useState(null)
-  const [selected, setSelected] = useState(new Map())
-  const [focusedType, setFocusedType] = useState('detailed') 
-  const [aiLoading, setAiLoading] = useState(false)
+  // ── Profile media state ───────────────────────────────────────────────
+  const [profileMedia, setProfileMedia] = useState({ photos: [], pdfs: [], audio: '' })
+  const [selectedPhotos, setSelectedPhotos] = useState(new Set())  // indices of selected photos
+  const [selectedPdfs, setSelectedPdfs]     = useState(new Set())  // indices of selected pdfs
+  const [useProfileAudio, setUseProfileAudio] = useState(false)
+
+  // Extra one-off image upload (campaign-specific, not from profile)
+  const [extraImageUrl, setExtraImageUrl] = useState(null)
+
+  const [selected, setSelected]     = useState(new Map())
+  const [focusedType, setFocusedType] = useState('detailed')
+  const [aiLoading, setAiLoading]   = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [mediaLoading, setMediaLoading] = useState(false)
 
   const leadIds = Array.from(selected.keys())
 
+  // Load profile media when image type is activated
   useEffect(() => {
-    localStorage.setItem('neolix_wa_form', JSON.stringify(form))
-  }, [form])
+    if (!activeTypes.has('image')) return
+    const load = async () => {
+      setMediaLoading(true)
+      try {
+        const { data } = await profileApi.get()
+        setProfileMedia({
+          photos: data.product_photos || [],
+          pdfs:   data.product_pdfs   || [],
+          audio:  data.audio_voice_base64 || '',
+        })
+        // Auto-select all by default
+        setSelectedPhotos(new Set((data.product_photos || []).map((_, i) => i)))
+        setSelectedPdfs(new Set((data.product_pdfs || []).map((_, i) => i)))
+        setUseProfileAudio(!!(data.audio_voice_base64))
+      } catch {
+        toast.error('Failed to load profile media assets')
+      } finally {
+        setMediaLoading(false)
+      }
+    }
+    load()
+  }, [activeTypes.has('image')])  // re-runs if image type toggled on
 
-  useEffect(() => {
-    localStorage.setItem('neolix_wa_active_types', JSON.stringify(Array.from(activeTypes)))
-  }, [activeTypes])
-
-  useEffect(() => {
-    localStorage.setItem('neolix_wa_messages', JSON.stringify(messages))
-  }, [messages])
+  useEffect(() => { localStorage.setItem('neolix_wa_form', JSON.stringify(form)) }, [form])
+  useEffect(() => { localStorage.setItem('neolix_wa_active_types', JSON.stringify(Array.from(activeTypes))) }, [activeTypes])
+  useEffect(() => { localStorage.setItem('neolix_wa_messages', JSON.stringify(messages)) }, [messages])
 
   const purgeFormCache = () => {
     localStorage.removeItem('neolix_wa_form')
@@ -366,64 +392,89 @@ function CampaignCreate({ onBack, onDone }) {
   const toggleType = (id) => {
     setActiveTypes(prev => {
       const next = new Set(prev)
-      if (next.has(id)) { 
-        if (next.size > 1) next.delete(id); 
-        if(focusedType === id) setFocusedType(Array.from(next)[0]) 
-      } else { 
-        next.add(id); 
-        setFocusedType(id); 
+      if (next.has(id)) {
+        if (next.size > 1) next.delete(id)
+        if (focusedType === id) setFocusedType(Array.from(next)[0])
+      } else {
+        next.add(id)
+        setFocusedType(id)
       }
       return next
     })
   }
+
+  const togglePhoto = (i) => setSelectedPhotos(prev => {
+    const next = new Set(prev)
+    next.has(i) ? next.delete(i) : next.add(i)
+    return next
+  })
+
+  const togglePdf = (i) => setSelectedPdfs(prev => {
+    const next = new Set(prev)
+    next.has(i) ? next.delete(i) : next.add(i)
+    return next
+  })
 
   const triggerAIGenerate = async () => {
     setAiLoading(true)
     try {
       const target = MSG_TYPES.find(x => x.id === focusedType)
       const { data } = await waApi.preview({
-        message: '', lead_id: 0, personalise: false, generate_template: true,
-        message_type: focusedType, context_hint: target.hint
+        message: '', lead_id: 0, personalise: false,
+        generate_template: true, message_type: focusedType,
+        context_hint: target.hint
       })
       setMessages(p => ({ ...p, [focusedType]: data.message || '' }))
       toast.success(`${target.label} template drafted`)
     } catch {
-      toast.error('AI text generation failed')
+      toast.error('AI generation failed')
     } finally {
       setAiLoading(false)
     }
   }
 
   const submitCampaignPipeline = async () => {
-    if (!form.campaign_name.trim()) return toast.error('Enter valid campaign label identity')
-    if (selected.size === 0) return toast.error('Target recipient group selector is empty')
-    
+    if (!form.campaign_name.trim()) return toast.error('Enter campaign name')
+    if (selected.size === 0) return toast.error('Select at least one lead')
+
     const enabledList = Array.from(activeTypes)
-    for(const type of enabledList) {
-      if(type !== 'image' && !messages[type]?.trim()) return toast.error(`Please define template copy data for ${type.toUpperCase()}`)
+    for (const type of enabledList) {
+      if (type !== 'image' && !messages[type]?.trim())
+        return toast.error(`Add template for ${type.toUpperCase()}`)
     }
+
+    // Build final photos/pdfs/audio from profile selections + any extra upload
+    const finalPhotos = [
+      ...Array.from(selectedPhotos).map(i => profileMedia.photos[i]).filter(Boolean),
+      ...(extraImageUrl ? [extraImageUrl] : [])
+    ]
+    const finalPdfs = Array.from(selectedPdfs).map(i => profileMedia.pdfs[i]).filter(Boolean)
+    const finalAudio = useProfileAudio ? profileMedia.audio : ''
 
     setSubmitting(true)
     try {
-      const dailyLimitInt = parseInt(form.daily_limit, 10) || 50
-
       await waApi.campaignCreate({
-        campaign_name: form.campaign_name,
-        lead_ids: leadIds.map(id => parseInt(id, 10) || id), 
-        personalise: form.personalise,
-        daily_limit: dailyLimitInt,
-        send_order: form.send_order,
-        selected_types: enabledList,
-        hook_template: messages.hook || "",
-        detailed_template: messages.detailed || "",
-        image_template: messages.image || "",
-        image_base64: imageUrl ? imageUrl.split(',')[1] : ""
+        campaign_name:     form.campaign_name,
+        lead_ids:          leadIds.map(id => parseInt(id, 10) || id),
+        personalise:       form.personalise,
+        daily_limit:       parseInt(form.daily_limit, 10) || 50,
+        send_order:        form.send_order,
+        selected_types:    enabledList,
+        hook_template:     messages.hook     || '',
+        detailed_template: messages.detailed || '',
+        image_template:    messages.image    || '',
+        // Pass selected media directly into the campaign payload
+        photos_array:      finalPhotos,
+        pdfs_array:        finalPdfs,
+        audio_voice_base64: finalAudio,
+        // Keep image_base64 for backward compat (first photo)
+        image_base64:      finalPhotos[0] ? finalPhotos[0].split(',')[1] : '',
       })
-      toast.success(`Strategy deployed! System is processing drafts in background caches.`)
+      toast.success('Campaign deployed!')
       purgeFormCache()
       setTimeout(onDone, 500)
     } catch (err) {
-      toast.error(err.response?.data?.detail || 'Payload constraint validation failure')
+      toast.error(err.response?.data?.detail || 'Failed to create campaign')
     } finally {
       setSubmitting(false)
     }
@@ -434,90 +485,227 @@ function CampaignCreate({ onBack, onDone }) {
   return (
     <div className="space-y-4">
       <button onClick={onBack} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back</button>
-      <h2 className="text-xl font-bold text-slate-900">Configure Multi-Variant Cluster Outreach</h2>
+      <h2 className="text-xl font-bold text-slate-900">Configure Campaign</h2>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="space-y-4">
           <div className="card p-5 space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="field-label">Identity Label</label><input className="input" placeholder="e.g. Combo Campaign - Tech Leads" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} /></div>
-              <div><label className="field-label">Daily Allocation Cap</label><input type="number" min={1} max={50} className="input" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value })} /></div>
-            </div>
-
-            <div>
-              <label className="field-label mb-1.5 block">Select Active Variant Configuration Combo</label>
-              <div className="grid grid-cols-3 gap-2">
-                {MSG_TYPES.map(t => {
-                  const active = activeTypes.has(t.id)
-                  return (
-                    <button key={t.id} type="button" onClick={() => toggleType(t.id)} className={`p-2.5 rounded-xl border font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition-all ${active ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
-                      <TypeIcon id={t.id} size={14} />
-                      {t.label} Variant
-                    </button>
-                  )
-                })}
+              <div>
+                <label className="field-label">Campaign Name</label>
+                <input className="input" placeholder="e.g. Tech Leads Q1" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
+              </div>
+              <div>
+                <label className="field-label">Daily Limit</label>
+                <input type="number" min={1} max={50} className="input" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value })} />
               </div>
             </div>
 
+            {/* Variant selector */}
+            <div>
+              <label className="field-label mb-1.5 block">Message Variants</label>
+              <div className="grid grid-cols-3 gap-2">
+                {MSG_TYPES.map(t => (
+                  <button key={t.id} type="button" onClick={() => toggleType(t.id)}
+                    className={`p-2.5 rounded-xl border font-bold text-xs flex flex-col items-center gap-1.5 transition-all
+                      ${activeTypes.has(t.id) ? 'bg-emerald-50 border-emerald-400 text-emerald-800' : 'bg-slate-50 border-slate-200 text-slate-400'}`}>
+                    <TypeIcon id={t.id} size={14} />
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Tab switcher */}
             <div className="border-t pt-3 space-y-3">
               <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
                 {Array.from(activeTypes).map(typeId => (
-                  <button key={typeId} type="button" onClick={() => setFocusedType(typeId)} className={`flex-1 py-1 text-center font-bold text-xs rounded-lg uppercase transition-all ${focusedType === typeId ? 'bg-white shadow-2xs text-slate-900' : 'text-slate-400'}`}>
-                    Edit {typeId}
+                  <button key={typeId} type="button" onClick={() => setFocusedType(typeId)}
+                    className={`flex-1 py-1 text-center font-bold text-xs rounded-lg uppercase transition-all
+                      ${focusedType === typeId ? 'bg-white shadow text-slate-900' : 'text-slate-400'}`}>
+                    {typeId}
                   </button>
                 ))}
               </div>
 
+              {/* ── Image variant: show profile media picker ── */}
               {focusedType === 'image' && (
-                <div className="fade-up">
-                  {imageUrl ? (
-                    <div className="relative mb-2 w-full h-24 border rounded-xl overflow-hidden"><img src={imageUrl} className="w-full h-full object-cover" /><button onClick={() => setImageUrl(null)} className="absolute top-1 right-1 p-1 bg-white rounded-full shadow border"><X size={10} /></button></div>
+                <div className="space-y-4 fade-up">
+                  {mediaLoading ? (
+                    <div className="flex items-center gap-2 text-xs text-slate-400 py-3">
+                      <Loader2 size={13} className="animate-spin" /> Loading your profile media...
+                    </div>
                   ) : (
-                    <button type="button" onClick={() => { const i = document.createElement('input'); i.type='file'; i.accept='image/*'; i.onchange=e=>{ const f=e.target.files[0]; const r=new FileReader(); r.onload=ev=>setImageUrl(ev.target.result); r.readAsDataURL(f) }; i.click() }} className="w-full h-20 border-2 border-dashed rounded-xl text-xs text-slate-400 flex flex-col items-center justify-center gap-1"><Image size={15} /> Upload Media Attachment Layer</button>
+                    <>
+                      {/* Photos */}
+                      {profileMedia.photos.length > 0 ? (
+                        <div>
+                          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            Product Photos <span className="text-emerald-600">({selectedPhotos.size} selected)</span>
+                          </p>
+                          <div className="grid grid-cols-4 gap-2">
+                            {profileMedia.photos.map((src, i) => (
+                              <button key={i} type="button" onClick={() => togglePhoto(i)}
+                                className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all
+                                  ${selectedPhotos.has(i) ? 'border-emerald-500' : 'border-slate-200 opacity-50'}`}>
+                                <img src={src} alt="" className="w-full h-full object-cover" />
+                                {selectedPhotos.has(i) && (
+                                  <div className="absolute top-1 right-1 w-4 h-4 bg-emerald-500 rounded-full flex items-center justify-center">
+                                    <Check size={9} className="text-white" />
+                                  </div>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+                          No product photos saved. <a href="/settings" className="font-bold underline">Add them in Settings →</a>
+                        </div>
+                      )}
+
+                      {/* PDFs */}
+                      {profileMedia.pdfs.length > 0 ? (
+                        <div>
+                          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                            Brochures / PDFs <span className="text-emerald-600">({selectedPdfs.size} selected)</span>
+                          </p>
+                          <div className="space-y-1.5">
+                            {profileMedia.pdfs.map((_, i) => (
+                              <button key={i} type="button" onClick={() => togglePdf(i)}
+                                className={`w-full flex items-center gap-3 p-2.5 rounded-xl border text-left transition-all
+                                  ${selectedPdfs.has(i) ? 'bg-emerald-50 border-emerald-400' : 'bg-slate-50 border-slate-200 opacity-60'}`}>
+                                <FileText size={14} className={selectedPdfs.has(i) ? 'text-emerald-600' : 'text-slate-400'} />
+                                <span className="text-xs font-semibold flex-1">Brochure {i + 1}.pdf</span>
+                                {selectedPdfs.has(i) && <Check size={13} className="text-emerald-500 flex-shrink-0" />}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-700">
+                          No PDFs saved. <a href="/settings" className="font-bold underline">Add them in Settings →</a>
+                        </div>
+                      )}
+
+                      {/* Voice note */}
+                      {profileMedia.audio ? (
+                        <div>
+                          <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Voice Note</p>
+                          <div className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer
+                            ${useProfileAudio ? 'bg-emerald-50 border-emerald-400' : 'bg-slate-50 border-slate-200 opacity-60'}`}
+                            onClick={() => setUseProfileAudio(v => !v)}>
+                            <Mic size={14} className={useProfileAudio ? 'text-emerald-600' : 'text-slate-400'} />
+                            <audio controls src={profileMedia.audio} className="flex-1 h-7" onClick={e => e.stopPropagation()} />
+                            {useProfileAudio && <Check size={13} className="text-emerald-500 flex-shrink-0" />}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-500">
+                          No voice note saved. <a href="/settings" className="font-bold underline">Record one in Settings →</a>
+                        </div>
+                      )}
+
+                      {/* Extra one-off image upload */}
+                      <div>
+                        <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Add Extra Image (optional)</p>
+                        {extraImageUrl ? (
+                          <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-300">
+                            <img src={extraImageUrl} className="w-full h-full object-cover" alt="" />
+                            <button onClick={() => setExtraImageUrl(null)} className="absolute top-1 right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
+                              <X size={8} className="text-white" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button type="button" onClick={() => {
+                            const input = document.createElement('input')
+                            input.type = 'file'; input.accept = 'image/*'
+                            input.onchange = e => {
+                              const f = e.target.files[0]
+                              const r = new FileReader()
+                              r.onload = ev => setExtraImageUrl(ev.target.result)
+                              r.readAsDataURL(f)
+                            }
+                            input.click()
+                          }} className="w-full h-14 border-2 border-dashed border-slate-300 rounded-xl text-xs text-slate-400 flex items-center justify-center gap-2 hover:border-slate-400 transition-colors">
+                            <Image size={13} /> Upload campaign-specific image
+                          </button>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               )}
 
+              {/* Caption template for image, or text template for hook/detailed */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-bold text-slate-500 uppercase">{activeConfigMeta?.label} Base Blueprint Template</span>
-                  <button type="button" onClick={triggerAIGenerate} disabled={aiLoading} className="text-xs font-bold text-emerald-600 flex items-center gap-1">{aiLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} AI Generate Blueprint</button>
+                  <span className="text-xs font-bold text-slate-500 uppercase">
+                    {activeConfigMeta?.label} Template
+                  </span>
+                  <button type="button" onClick={triggerAIGenerate} disabled={aiLoading}
+                    className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+                    {aiLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} AI Generate
+                  </button>
                 </div>
-                <textarea className="textarea h-32 font-mono text-xs" value={messages[focusedType]} onChange={e => setMessages({ ...messages, [focusedType]: e.target.value })} placeholder={activeConfigMeta?.placeholder} />
+                <textarea
+                  className="textarea h-32 font-mono text-xs"
+                  value={messages[focusedType]}
+                  onChange={e => setMessages({ ...messages, [focusedType]: e.target.value })}
+                  placeholder={activeConfigMeta?.placeholder}
+                />
               </div>
             </div>
 
+            {/* Personalise toggle */}
             <div className="flex items-center justify-between py-2 border-t text-xs">
-              <div><p className="font-bold text-slate-700">Asynchronous AI Personalisation Pipeline</p><p className="text-slate-400">Groq parses variables automatically into individual multi-tenant drafts in background storage.</p></div>
-              <button type="button" onClick={() => setForm({ ...form, personalise: !form.personalise })} className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${form.personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}><span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.personalise ? 'left-5' : 'left-0.5'}`} /></button>
+              <div>
+                <p className="font-bold text-slate-700">AI Personalisation</p>
+                <p className="text-slate-400">Groq personalises each message per lead in background.</p>
+              </div>
+              <button type="button" onClick={() => setForm({ ...form, personalise: !form.personalise })}
+                className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${form.personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}>
+                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.personalise ? 'left-5' : 'left-0.5'}`} />
+              </button>
             </div>
           </div>
 
-          <div className="card p-5"><label className="field-label mb-2 block">Recipient Segment Node Target</label><LeadSelector selected={selected} onChange={setSelected} requirePhone={true} /></div>
+          <div className="card p-5">
+            <label className="field-label mb-2 block">Target Leads</label>
+            <LeadSelector selected={selected} onChange={setSelected} requirePhone={true} />
+          </div>
         </div>
 
-        {/* Right Info Notice Flow Panel */}
+        {/* Right info panel */}
         <div>
           <div className="card bg-slate-50 border border-slate-200 p-6 sticky top-6 space-y-4 rounded-2xl">
             <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
-              <Zap size={15} className="text-emerald-500" /> Autonomous Pipeline Architecture
+              <Zap size={15} className="text-emerald-500" /> Campaign Summary
+            </div>
+            <div className="bg-white p-3 border rounded-xl space-y-2 text-[11px] text-slate-600 font-medium">
+              <p>🎯 Leads selected: <strong>{selected.size}</strong></p>
+              <p>📨 Variants: <strong>{Array.from(activeTypes).join(', ')}</strong></p>
+              {activeTypes.has('image') && (
+                <>
+                  <p>🖼 Photos: <strong>{selectedPhotos.size} from profile{extraImageUrl ? ' + 1 extra' : ''}</strong></p>
+                  <p>📄 PDFs: <strong>{selectedPdfs.size} from profile</strong></p>
+                  <p>🎙 Voice note: <strong>{useProfileAudio && profileMedia.audio ? 'Yes' : 'No'}</strong></p>
+                </>
+              )}
             </div>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Manual step previews have been retired during configuration creation steps. When you deploy this strategy matrix, background threads will handle variant allocations instantly.
+              Deploy to generate AI drafts in the background. Review them in the campaign detail view before sending.
             </p>
-            <div className="bg-white p-3 border rounded-xl space-y-2 text-[11px] text-slate-600 font-medium">
-              <p>🟢 Step 1: Establish layout blueprint templates.</p>
-              <p>🟡 Step 2: Concurrently generate copies for every lead across text channels.</p>
-              <p>🔵 Step 3: Navigate to the details view pane to review, edit, or unlock sending sequences manually.</p>
-            </div>
           </div>
         </div>
       </div>
 
       <div className="flex gap-2 justify-end pt-3 border-t">
         <button type="button" onClick={onBack} className="px-4 py-1.5 text-xs border rounded-xl font-bold hover:bg-slate-50">Cancel</button>
-        <button type="button" onClick={submitCampaignPipeline} disabled={submitting || selected.size === 0} className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
-          {submitting ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Deploy Strategy Matrix
+        <button type="button" onClick={submitCampaignPipeline}
+          disabled={submitting || selected.size === 0}
+          className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
+          {submitting ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Deploy Campaign
         </button>
       </div>
     </div>
