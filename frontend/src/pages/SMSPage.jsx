@@ -400,97 +400,79 @@ function CampaignLeadSelector({ selected, onChange }) {
 
 // ── UPGRADED COMPONENT: INTEGRATED ASYNCHRONOUS BLUEPRINT SCHEDULER ───────────
 function SMSCampaignCreate({ onBack, onDone }) {
-  const [form, setForm] = useState({ campaign_name: '', sms_template_body: '', daily_limit: 150, timezone: 'Asia/Kolkata' })
+  const [form, setForm] = useState({ campaign_name: '', template: '', daily_limit: 150 })
   const [selectedLeads, setSelectedLeads] = useState(new Map())
+  const [previews, setPreviews] = useState({}) // Stores {lead_id: message}
+  const [activeLeadIndex, setActiveLeadIndex] = useState(0)
   const [loading, setLoading] = useState(false)
 
-  const handleCreate = async (e) => {
-    if (e) e.preventDefault()
-    if (!form.campaign_name.trim()) return toast.error('Please enter a Campaign Label identity first!')
-    if (!form.sms_template_body.trim()) return toast.error('Please configure your SMS blueprint template copy!')
-    if (selectedLeads.size === 0) return toast.error('Select at least one recipient lead segment node!')
+  const leadArray = Array.from(selectedLeads.values())
+
+  // Generate previews whenever template or leads change
+  useEffect(() => {
+    const newPreviews = {}
+    leadArray.forEach(lead => {
+      // Basic AI-style personalization logic
+      newPreviews[lead.id] = form.template
+        .replace('{lead_name}', lead.contact_name || 'there')
+        .replace('{lead_company}', lead.company_name || 'your company')
+        .replace('{details}', lead.business_details || '')
+    })
+    setPreviews(newPreviews)
+  }, [form.template, selectedLeads])
+
+  const handleDeploy = async () => {
+    if (!form.campaign_name || selectedLeads.size === 0) return toast.error('Check fields')
     
     setLoading(true)
     try {
-      // 1. Sync global gateway configuration threshold rules
-      await API.post('/sms/config', {
-        daily_cap: form.daily_limit,
-        timezone: form.timezone
-      })
-
-      // 2. Dispatch batch array directly to background compilation pipelines
-      const leadIdsList = Array.from(selectedLeads.keys()).map(id => parseInt(id, 10) || id)
-      await API.post('/sms/campaign/create', {
+      // Direct deployment without individual review per-item
+      await API.post('/sms/campaign/deploy', {
         campaign_name: form.campaign_name,
-        sms_template_body: form.sms_template_body,
-        lead_ids: leadIdsList
+        messages: leadArray.map(l => ({
+          lead_id: l.id,
+          phone: l.phone,
+          body: previews[l.id]
+        }))
       })
-
-      toast.success(`Strategy deployed! Background tasks are compiling customized drafts.`)
-      setTimeout(onDone, 500)
-    } catch (err) {
-      console.error(err)
-      toast.error('Failed to initialize hardware pacing cluster matrices.')
+      toast.success('Strategy deployed! Messages are hitting the hardware queue.')
+      onDone()
+    } catch {
+      toast.error('Deployment failed')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="max-w-4xl bg-white border rounded-2xl p-6 space-y-4 mx-auto shadow-xs">
-      <h2 className="text-base font-black tracking-tight flex items-center gap-1"><Sparkles size={16} className="text-blue-500" /> Configure Hardware Pacing Cluster</h2>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Campaign Identity Group</label>
-            <input className="w-full px-3 py-2 border rounded-xl text-xs" placeholder="e.g. SMS Cold Outreach - Analytics Setup" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Daily Run Cap Allocation</label>
-              <input type="number" className="w-full px-3 py-2 border rounded-xl text-xs" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value ? parseInt(e.target.value) : 150 })} />
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Target Zone Threshold</label>
-              <select className="w-full px-3 py-2 border rounded-xl text-xs bg-white text-slate-700 font-medium" value={form.timezone} onChange={e => setForm({ ...form, timezone: e.target.value })}>
-                <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">SMS Base Blueprint Copy</label>
-            <textarea 
-              className="textarea h-24 font-mono text-xs w-full p-3 border rounded-xl" 
-              placeholder="Hi {lead_name}, we noticed {lead_company} matches our platform criteria. Let's chat!" 
-              value={form.sms_template_body} 
-              onChange={e => setForm({ ...form, sms_template_body: e.target.value })} 
-            />
-            <p className="text-[10px] text-slate-400 font-medium mt-1">✨ Injects company profile and product details asynchronously in background runs.</p>
-          </div>
-          <div className="border p-4 rounded-xl bg-slate-50/50"><CampaignLeadSelector selected={selectedLeads} onChange={setSelectedLeads} /></div>
+    <div className="space-y-6">
+      <div className="grid grid-cols-3 gap-6">
+        {/* Left: Input */}
+        <div className="col-span-1 space-y-4">
+          <input className="input w-full" placeholder="Campaign Name" value={form.campaign_name} onChange={e => setForm({...form, campaign_name: e.target.value})} />
+          <textarea className="textarea w-full h-40" placeholder="Hi {lead_name}, regarding {lead_company}..." value={form.template} onChange={e => setForm({...form, template: e.target.value})} />
+          <CampaignLeadSelector selected={selectedLeads} onChange={setSelectedLeads} />
         </div>
 
-        {/* Right Flow Architecture Notice Panel */}
-        <div className="card bg-slate-50 border border-slate-200 p-5 space-y-4 rounded-2xl sticky top-4">
-          <div className="flex items-center gap-2 text-slate-800 font-bold text-xs uppercase tracking-wider">
-            <Zap size={14} className="text-blue-500" /> Pipeline Flow Management
+        {/* Right: Preview Taps */}
+        <div className="col-span-2 card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-bold">Lead Previews ({selectedLeads.size})</h3>
+            <div className="flex gap-2">
+              <button onClick={() => setActiveLeadIndex(Math.max(0, activeLeadIndex - 1))} className="btn-icon"><ChevronLeft size={16}/></button>
+              <span className="text-xs font-bold pt-2">{activeLeadIndex + 1} / {leadArray.length || 1}</span>
+              <button onClick={() => setActiveLeadIndex(Math.min(leadArray.length - 1, activeLeadIndex + 1))} className="btn-icon"><ChevronRight size={16}/></button>
+            </div>
           </div>
-          <p className="text-xs text-slate-500 leading-relaxed">
-            Neolix has unified all outreach systems. When you launch this pacing matrix cluster, concurrent threads process the templates instantly.
-          </p>
-          <div className="bg-white p-3 border rounded-xl space-y-2 text-[11px] text-slate-600 font-medium">
-            <p>🟢 Step 1: Initialize baseline layouts and criteria.</p>
-            <p>🟡 Step 2: System generates background drafts securely inside holding layers.</p>
-            <p>🔵 Step 3: Use the Gateway Monitor table log list to edit or verify messages before mobile app syncing loops fetch them.</p>
+          
+          <div className="bg-slate-950 text-white p-6 rounded-2xl min-h-[200px] font-mono text-sm shadow-inner">
+            {leadArray.length > 0 ? previews[leadArray[activeLeadIndex].id] : "Select leads to see previews..."}
           </div>
-        </div>
-      </div>
 
-      <div className="flex gap-2 justify-end pt-3 border-t">
-        <button type="button" onClick={onBack} className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:bg-slate-100 rounded-lg">Cancel</button>
-        <button type="button" onClick={handleCreate} disabled={loading} className="px-5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-xs">
-          {loading ? <Loader2 size={12} className="animate-spin" /> : <ShieldCheck size={13} />} Deploy Strategy Matrix
-        </button>
+          <button onClick={handleDeploy} disabled={loading || leadArray.length === 0} className="w-full mt-6 btn-primary py-3">
+            {loading ? <Loader2 className="animate-spin"/> : "Deploy Matrix Strategy"}
+          </button>
+        </div>
       </div>
     </div>
   )
