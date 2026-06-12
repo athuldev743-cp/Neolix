@@ -1,16 +1,16 @@
 /**
  * LeadSelector — Universal Reusable Lead Search + Deduplication Add Panel
- * Upgraded to dynamically filter lead validation matrices based on active campaign channels.
- * * Props:
+ * Dynamically filters lead validation matrices based on active campaign channels.
+ * When BOTH phone-based (whatsapp/sms) AND email channels are active, collects
+ * both a phone number and an email address per row.
+ *
+ * Props:
  * selected: Map<id, lead>
  * onChange: (newMap) => void
- * requiredChannels: String — comma separated fields to enforce (e.g. "email" or "email,whatsapp")
+ * requiredChannels: String — comma separated fields (e.g. "email" or "whatsapp,email")
  */
 import { useState, useRef, useCallback } from 'react'
-import {
-  Search, Upload, CreditCard, ClipboardList,
-  X, Check, Plus, Loader2
-} from 'lucide-react'
+import {  Search, Upload, CreditCard, ClipboardList,  X, Check, Plus, Loader2} from 'lucide-react'
 import toast from 'react-hot-toast'
 import { leadsApi } from '../services/api'
 
@@ -24,12 +24,15 @@ function normalizePhone(phone) {
 
 // ── Smart Spreadsheet Paste Ingestion Panel ──────────────────────────────────
 function SmartInsertionPanel({ onAdded, requiredChannels }) {
-  const [rows, setRows] = useState([{ target: '', name: '', company: '', businessDesc: '' }])
+  const [rows, setRows] = useState([{ phone: '', email: '', name: '', company: '', businessDesc: '' }])
   const [showClipboard, setShowClipboard] = useState(false)
   const [clipboardData, setRawClipboardData] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const isPhoneRequired = requiredChannels.includes('whatsapp') || requiredChannels.includes('sms')
+  const needsPhone = requiredChannels.includes('whatsapp') || requiredChannels.includes('sms')
+  const needsEmail = requiredChannels.includes('email')
+  // Both required → dual-field mode
+  const dualMode = needsPhone && needsEmail
 
   const handleInputChange = (index, field, value) => {
     const updatedRows = [...rows]
@@ -38,12 +41,12 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
   }
 
   const handleAddRow = () => {
-    setRows([...rows, { target: '', name: '', company: '', businessDesc: '' }])
+    setRows([...rows, { phone: '', email: '', name: '', company: '', businessDesc: '' }])
   }
 
   const handleRemoveRow = (index) => {
     if (rows.length === 1) {
-      setRows([{ target: '', name: '', company: '', businessDesc: '' }])
+      setRows([{ phone: '', email: '', name: '', company: '', businessDesc: '' }])
       return
     }
     setRows(rows.filter((_, i) => i !== index))
@@ -51,35 +54,37 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
 
   const handleClipboardParse = () => {
     if (!clipboardData.trim()) return toast.error('Paste raw dataset text blocks first')
-
     const textLines = clipboardData.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
     const dynamicallyParsedRows = []
 
     textLines.forEach(line => {
       const components = line.split(/[|\t,;]/).map(c => c.trim()).filter(Boolean)
-      let targetIndex = -1
+      const phoneIdx = components.findIndex(c => /^\+?\d[\d\s-]{6,14}$/.test(c.replace(/\D/g, '')))
+      const emailIdx = components.findIndex(c => EMAIL_RE.test(c))
+      const phoneVal = phoneIdx !== -1 ? components[phoneIdx] : ''
+      const emailVal = emailIdx !== -1 ? components[emailIdx] : ''
 
-      if (isPhoneRequired) {
-        targetIndex = components.findIndex(c => /^\+?\d[\d\s-]{6,14}$/.test(c.replace(/\D/g, '')))
-      } else {
-        targetIndex = components.findIndex(c => EMAIL_RE.test(c))
+      // Skip line if required field(s) missing
+      if (needsPhone && !phoneVal) return
+      if (needsEmail && !phoneVal && !emailVal && !needsPhone) {
+        if (!emailVal) return
       }
+      if (needsEmail && !needsPhone && !emailVal) return
+      if (!needsPhone && !needsEmail) return
 
-      if (targetIndex !== -1) {
-        const targetVal = components[targetIndex]
-        const restOfData = components.filter((_, i) => i !== targetIndex)
-
-        dynamicallyParsedRows.push({
-          target: targetVal,
-          name: restOfData[0] || '',
-          company: restOfData[1] || '',
-          businessDesc: restOfData.slice(2).join(' ') || ''
-        })
-      }
+      const usedIdx = new Set([phoneIdx, emailIdx].filter(i => i !== -1))
+      const restOfData = components.filter((_, i) => !usedIdx.has(i))
+      dynamicallyParsedRows.push({
+        phone: phoneVal,
+        email: emailVal,
+        name: restOfData[0] || '',
+        company: restOfData[1] || '',
+        businessDesc: restOfData.slice(2).join(' ') || ''
+      })
     })
 
     if (dynamicallyParsedRows.length === 0) {
-      return toast.error(isPhoneRequired ? 'Could not map matching mobile data rows' : 'Could not map matching email data rows')
+      return toast.error('Could not map matching data rows for the required channel fields')
     }
 
     setRows(dynamicallyParsedRows)
@@ -88,38 +93,46 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
     toast.success(`Populated ${dynamicallyParsedRows.length} inline matrix fields!`)
   }
 
-  const handleBatchSubmit = async () => {
-    const validRows = rows.filter(r => {
-      if (isPhoneRequired) return normalizePhone(r.target).length >= 10
-      return r.target.includes('@') && EMAIL_RE.test(r.target)
-    })
+  const rowIsValid = (r) => {
+    const phoneOk = normalizePhone(r.phone).length >= 10
+    const emailOk = r.email.includes('@') && EMAIL_RE.test(r.email)
+    if (needsPhone && needsEmail) return phoneOk && emailOk
+    if (needsPhone) return phoneOk
+    if (needsEmail) return emailOk
+    return phoneOk || emailOk
+  }
 
+  const handleBatchSubmit = async () => {
+    const validRows = rows.filter(rowIsValid)
     if (validRows.length === 0) {
-      return toast.error(isPhoneRequired ? 'Provide at least one valid phone row' : 'Provide at least one valid email row')
+      let msg = 'Provide at least one valid row'
+      if (needsPhone && needsEmail) msg = 'Provide both a valid phone number and email for at least one row'
+      else if (needsPhone) msg = 'Provide at least one valid phone row'
+      else if (needsEmail) msg = 'Provide at least one valid email row'
+      return toast.error(msg)
     }
 
     setLoading(true)
     let processedCount = 0
     const aggregatedIds = []
-
     try {
       await Promise.all(
         validRows.map(async (row) => {
+          const phone = normalizePhone(row.phone)
+          const email = row.email.toLowerCase().trim()
           const payload = {
             contact_name: row.name,
             company_name: row.company,
             business_details: row.businessDesc,
-            source: isPhoneRequired ? 'whatsapp_smart_batch' : 'email_smart_batch'
+            source: dualMode ? 'omni_smart_batch' : needsPhone ? 'whatsapp_smart_batch' : 'email_smart_batch'
           }
-
-          if (isPhoneRequired) {
-            const phone = normalizePhone(row.target)
-            payload.phone = phone
+          if (needsPhone) payload.phone = phone
+          if (needsEmail) {
+            payload.email = email
+          } else if (needsPhone) {
+            // Channel doesn't need email but our DB schema requires one — synthesize
             payload.email = `${phone}@neolix-channel.local`
-          } else {
-            payload.email = row.target.toLowerCase().trim()
           }
-
           try {
             const { data } = await leadsApi.addSingle(payload)
             if (data.lead_ids?.length) {
@@ -133,16 +146,21 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
           }
         })
       )
-
       if (aggregatedIds.length > 0) onAdded(aggregatedIds)
       toast.success(`Successfully registered ${processedCount} new contacts!`)
-      setRows([{ target: '', name: '', company: '', businessDesc: '' }])
+      setRows([{ phone: '', email: '', name: '', company: '', businessDesc: '' }])
     } catch {
       toast.error('Batch registration pipeline error')
     } finally {
       setLoading(false)
     }
   }
+
+  const clipboardPlaceholder = dualMode
+    ? "9876543210 \t john@acme.com \t John Smith \t Acme Corp"
+    : needsPhone
+      ? "9876543210 \t John Smith \t Acme Corp"
+      : "john@acme.com \t John Smith \t Acme Corp"
 
   return (
     <div className="p-3 space-y-3">
@@ -155,7 +173,7 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
 
       {showClipboard && (
         <div className="p-2.5 bg-blue-50/40 border border-blue-200 rounded-xl space-y-2 fade-up">
-          <textarea value={clipboardData} onChange={e => setRawClipboardData(e.target.value)} className="textarea h-20 text-xs font-mono bg-white placeholder-slate-400" placeholder={isPhoneRequired ? "9876543210 \t John Smith \t Acme Corp" : "john@acme.com \t John Smith \t Acme Corp"} />
+          <textarea value={clipboardData} onChange={e => setRawClipboardData(e.target.value)} className="textarea h-20 text-xs font-mono bg-white placeholder-slate-400" placeholder={clipboardPlaceholder} />
           <button type="button" onClick={handleClipboardParse} className="w-full bg-blue-600 text-white rounded-lg py-1 font-bold text-xs">Parse and Populate Layout Matrices</button>
         </div>
       )}
@@ -169,8 +187,16 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
                 {rows.length === 1 ? 'Reset fields' : '❌ Remove'}
               </button>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-              <input required className="input text-xs bg-white" type={isPhoneRequired ? 'tel' : 'email'} placeholder={isPhoneRequired ? 'Mobile Number *' : 'Email Address *'} value={row.target} onChange={e => handleInputChange(index, 'target', e.target.value)} />
+            {/* Contact fields: phone and/or email depending on active channels */}
+            <div className={`grid grid-cols-1 ${dualMode ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-2`}>
+              {needsPhone && (
+                <input required className="input text-xs bg-white" type="tel" placeholder="Mobile Number *"
+                  value={row.phone} onChange={e => handleInputChange(index, 'phone', e.target.value)} />
+              )}
+              {needsEmail && (
+                <input required className="input text-xs bg-white" type="email" placeholder="Email Address *"
+                  value={row.email} onChange={e => handleInputChange(index, 'email', e.target.value)} />
+              )}
               <input className="input text-xs bg-white" placeholder="Contact Name" value={row.name} onChange={e => handleInputChange(index, 'name', e.target.value)} />
               <input className="input text-xs bg-white" placeholder="Company" value={row.company} onChange={e => handleInputChange(index, 'company', e.target.value)} />
             </div>
@@ -194,18 +220,17 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
 function UploadPanel({ onAdded }) {
   const [loading, setLoading] = useState(false)
   const ref = useRef()
-
   const handle = async (file) => {
     setLoading(true)
     try {
       const { data } = await leadsApi.uploadFile(file)
       toast.success('Leads extracted from file asset dataset')
       onAdded(data.lead_ids || [])
-    } catch { 
-      toast.error('Upload parser file error') 
-    } finally { 
-      setLoading(false) 
-    }
+    } catch {
+       toast.error('Upload parser file error')
+     } finally {
+       setLoading(false)
+     }
   }
 
   return (
@@ -230,7 +255,6 @@ function ScanPanel({ onAdded, requiredChannels }) {
   const videoRef = useRef()
   const canvasRef = useRef()
   const streamRef = useRef()
-
   const isPhoneRequired = requiredChannels.includes('whatsapp') || requiredChannels.includes('sms')
 
   const openCamera = async () => {
@@ -254,14 +278,14 @@ function ScanPanel({ onAdded, requiredChannels }) {
       if (data.total_found > 0 || data.phone || data.email) {
         toast.success('Card data extracted accurately')
         onAdded(data.lead_ids || [])
-      } else { 
-        toast.error(isPhoneRequired ? 'No valid mobile phone number found' : 'No valid email address found') 
-      }
-    } catch { 
-      toast.error('AI vision system error') 
-    } finally { 
-      setLoading(false) 
-    }
+      } else {
+         toast.error(isPhoneRequired ? 'No valid mobile phone number found' : 'No valid email address found')
+       }
+    } catch {
+       toast.error('AI vision system error')
+     } finally {
+       setLoading(false)
+     }
   }
 
   return (
@@ -294,7 +318,6 @@ export default function LeadSelector({ selected, onChange, requiredChannels = 'e
   const [results, setResults]       = useState([])
   const [searching, setSearching]   = useState(false)
   const [activePanel, setActivePanel] = useState(null)
-
   const isPhoneRequired = requiredChannels.includes('whatsapp') || requiredChannels.includes('sms')
 
   const doSearch = async () => {
@@ -304,15 +327,15 @@ export default function LeadSelector({ selected, onChange, requiredChannels = 'e
       // ✅ Pass active channels configuration layout masks straight to your updated database query filters
       const activeContext = isPhoneRequired ? 'whatsapp' : 'email'
       const { data } = await leadsApi.search(query, 50, activeContext, requiredChannels)
-      
+            
       let leads = data.leads || data || []
       setResults(leads)
       if (leads.length === 0) toast('No uncontacted leads match your active channel requirements!')
-    } catch { 
-      toast.error('Search index lookup timeout') 
-    } finally { 
-      setSearching(false) 
-    }
+    } catch {
+       toast.error('Search index lookup timeout')
+     } finally {
+       setSearching(false)
+     }
   }
 
   const toggle = useCallback((lead) => {
