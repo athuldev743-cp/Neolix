@@ -31,7 +31,6 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
 
   const needsPhone = requiredChannels.includes('whatsapp') || requiredChannels.includes('sms')
   const needsEmail = requiredChannels.includes('email')
-  // Both required → dual-field mode
   const dualMode = needsPhone && needsEmail
 
   const handleInputChange = (index, field, value) => {
@@ -64,11 +63,8 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
       const phoneVal = phoneIdx !== -1 ? components[phoneIdx] : ''
       const emailVal = emailIdx !== -1 ? components[emailIdx] : ''
 
-      // Skip line if required field(s) missing
       if (needsPhone && !phoneVal) return
-      if (needsEmail && !phoneVal && !emailVal && !needsPhone) {
-        if (!emailVal) return
-      }
+      if (needsEmail && !phoneVal && !emailVal && !needsPhone) { if (!emailVal) return }
       if (needsEmail && !needsPhone && !emailVal) return
       if (!needsPhone && !needsEmail) return
 
@@ -83,14 +79,11 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
       })
     })
 
-    if (dynamicallyParsedRows.length === 0) {
-      return toast.error('Could not map matching data rows for the required channel fields')
-    }
-
+    if (dynamicallyParsedRows.length === 0) return toast.error('Could not map data')
     setRows(dynamicallyParsedRows)
     setRawClipboardData('')
     setShowClipboard(false)
-    toast.success(`Populated ${dynamicallyParsedRows.length} inline matrix fields!`)
+    toast.success(`Populated ${dynamicallyParsedRows.length} rows!`)
   }
 
   const rowIsValid = (r) => {
@@ -102,61 +95,14 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
     return phoneOk || emailOk
   }
 
-  const handleBatchSubmit = async () => { 
-    const validRows = rows.filter(rowIsValid);
-    if (validRows.length === 0) {
-      let msg = 'Provide at least one valid row';
-      return toast.error(msg);
-    }
-
-    setLoading(true);
-    let processedCount = 0;
-    const aggregatedIds = [];
-
-    try {
-      await Promise.all(
-        validRows.map(async (row) => {
-          const phone = normalizePhone(row.phone);
-          const email = row.email.toLowerCase().trim();
-          const payload = {
-            contact_name: row.name,
-            company_name: row.company,
-            business_details: row.businessDesc,
-            source: dualMode ? 'omni_smart_batch' : needsPhone ? 'whatsapp_smart_batch' : 'email_smart_batch'
-          };
-          if (needsPhone) payload.phone = phone;
-          if (needsEmail) {
-            payload.email = email;
-          } else if (needsPhone) {
-            payload.email = `${phone}@neolix-channel.local`;
-          }
-          
-          try {
-            const { data } = await leadsApi.addSingle(payload);
-            if (data.lead_ids?.length) aggregatedIds.push(...data.lead_ids);
-            else if (data.id || data.lead_id) aggregatedIds.push(data.id || data.lead_id);
-            processedCount++;
-          } catch (e) {
-            console.error('Database insertion error:', e);
-          }
-        })
-      );
-
-      if (aggregatedIds.length > 0) {
-        onAdded(aggregatedIds);
-        toast.success(`Successfully registered ${processedCount} new contacts!`);
-      }
-      setRows([{ phone: '', email: '', name: '', company: '', businessDesc: '' }]);
-    } catch (err) {
-      toast.error('Batch registration pipeline error');
-    } finally {
-      setLoading(false);
-    }
-  
+  const handleBatchSubmit = async () => {
+    const validRows = rows.filter(rowIsValid)
+    if (validRows.length === 0) return toast.error('Provide at least one valid row')
 
     setLoading(true)
     let processedCount = 0
     const aggregatedIds = []
+
     try {
       await Promise.all(
         validRows.map(async (row) => {
@@ -172,26 +118,26 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
           if (needsEmail) {
             payload.email = email
           } else if (needsPhone) {
-            // Channel doesn't need email but our DB schema requires one — synthesize
             payload.email = `${phone}@neolix-channel.local`
           }
+          
           try {
             const { data } = await leadsApi.addSingle(payload)
-            if (data.lead_ids?.length) {
-              aggregatedIds.push(...data.lead_ids)
-            } else if (data.id || data.lead_id) {
-              aggregatedIds.push(data.id || data.lead_id)
-            }
+            if (data.lead_ids?.length) aggregatedIds.push(...data.lead_ids)
+            else if (data.id || data.lead_id) aggregatedIds.push(data.id || data.lead_id)
             processedCount++
           } catch (e) {
             console.error('Database insertion error:', e)
           }
         })
       )
-      if (aggregatedIds.length > 0) onAdded(aggregatedIds)
-      toast.success(`Successfully registered ${processedCount} new contacts!`)
+
+      if (aggregatedIds.length > 0) {
+        onAdded(aggregatedIds)
+        toast.success(`Successfully registered ${processedCount} new contacts!`)
+      }
       setRows([{ phone: '', email: '', name: '', company: '', businessDesc: '' }])
-    } catch {
+    } catch (err) {
       toast.error('Batch registration pipeline error')
     } finally {
       setLoading(false)
@@ -229,7 +175,6 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
                 {rows.length === 1 ? 'Reset fields' : '❌ Remove'}
               </button>
             </div>
-            {/* Contact fields: phone and/or email depending on active channels */}
             <div className={`grid grid-cols-1 ${dualMode ? 'md:grid-cols-4' : 'md:grid-cols-3'} gap-2`}>
               {needsPhone && (
                 <input required className="input text-xs bg-white" type="tel" placeholder="Mobile Number *"
@@ -258,6 +203,7 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
     </div>
   )
 }
+
 
 function UploadPanel({ onAdded }) {
   const [loading, setLoading] = useState(false)
