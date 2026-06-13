@@ -103,14 +103,62 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
   }
 
   const handleBatchSubmit = async () => {
-    const validRows = rows.filter(rowIsValid)
+    const validRows = rows.filter(rowIsValid);
     if (validRows.length === 0) {
-      let msg = 'Provide at least one valid row'
-      if (needsPhone && needsEmail) msg = 'Provide both a valid phone number and email for at least one row'
-      else if (needsPhone) msg = 'Provide at least one valid phone row'
-      else if (needsEmail) msg = 'Provide at least one valid email row'
-      return toast.error(msg)
+      return toast.error('Provide at least one valid row');
     }
+
+    setLoading(true);
+    let processedCount = 0;
+    const aggregatedIds = [];
+
+    try {
+      // 1. Process all rows and collect IDs
+      await Promise.all(
+        validRows.map(async (row) => {
+          const phone = normalizePhone(row.phone);
+          const email = row.email.toLowerCase().trim();
+          const payload = {
+            contact_name: row.name,
+            company_name: row.company,
+            business_details: row.businessDesc,
+            source: dualMode ? 'omni_smart_batch' : needsPhone ? 'whatsapp_smart_batch' : 'email_smart_batch'
+          };
+          if (needsPhone) payload.phone = phone;
+          if (needsEmail) {
+            payload.email = email;
+          } else if (needsPhone) {
+            payload.email = `${phone}@neolix-channel.local`;
+          }
+
+          try {
+            const { data } = await leadsApi.addSingle(payload);
+            if (data.lead_ids?.length) {
+              aggregatedIds.push(...data.lead_ids);
+            } else if (data.id || data.lead_id) {
+              aggregatedIds.push(data.id || data.lead_id);
+            }
+            processedCount++;
+          } catch (e) {
+            console.error('Database insertion error:', e);
+          }
+        })
+      );
+
+      // 2. Trigger the Preview/Generation Pipeline via onAdded
+      if (aggregatedIds.length > 0) {
+        toast.success(`Registered ${processedCount} contacts! AI is generating drafts...`);
+        onAdded(aggregatedIds); // This triggers the parent to start the campaign
+      }
+      
+      setRows([{ phone: '', email: '', name: '', company: '', businessDesc: '' }]);
+      
+    } catch (err) {
+      toast.error('Batch registration pipeline error');
+    } finally {
+      setLoading(false);
+    }
+  };
 
     setLoading(true)
     let processedCount = 0
@@ -215,7 +263,7 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
       </div>
     </div>
   )
-}
+
 
 function UploadPanel({ onAdded }) {
   const [loading, setLoading] = useState(false)
