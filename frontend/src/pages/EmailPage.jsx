@@ -133,23 +133,28 @@ function CampaignDetail({ id, onBack }) {
   }
 
   const handleCommitDraftUpdate = async () => {
-    if (!activeItem) return
-    setCommittingDraft(true)
-    try {
-      await api.post('/campaigns/draft/save', {
-        queue_item_id: activeItem.id,
-        updated_subject: editedSubject,
-        updated_body: editedBody
-      })
-      toast.success('Draft modifications authorized for deployment!')
-      setActiveItem(null)
-      load()
-    } catch {
-      toast.error('Failed to update target draft parameters.')
-    } finally {
-      setCommittingDraft(false)
-    }
+  if (!activeItem) return
+  setCommittingDraft(true)
+  try {
+    // 1. Save the draft
+    await api.post('/campaigns/draft/save', {
+      queue_item_id: activeItem.id,
+      updated_subject: editedSubject,
+      updated_body: editedBody
+    })
+    
+    // 2. Direct Deploy: Trigger processing immediately after approval
+    await api.post(`/campaigns/${id}/start`)
+    
+    toast.success('Draft saved and deployment initiated!')
+    setActiveItem(null)
+    load()
+  } catch {
+    toast.error('Failed to commit and deploy.')
+  } finally {
+    setCommittingDraft(false)
   }
+}
 
   const forceStartCampaignProcessing = async () => {
     setTriggeringDeployment(true)
