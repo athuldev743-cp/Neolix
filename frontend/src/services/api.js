@@ -97,6 +97,8 @@ export const waApi = {
   campaignGet:    (id)    => api.get(`/whatsapp/campaign/${id}`),
   campaignDetail: (id)    => api.get(`/whatsapp/campaign/${id}`),
   preview:        (data)  => api.post('/whatsapp/preview', data),
+   previewBatch: (data) => api.post('/whatsapp/preview-batch', data),
+  launch:       (data) => api.post('/whatsapp/launch', data),
 }
 
 // ── Android SIM Gateway ───────────────────────────────────────────────────────

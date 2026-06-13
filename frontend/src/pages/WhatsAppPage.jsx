@@ -325,10 +325,21 @@ function CampaignDetail({ id, onBack }) {
 // ═══════════════════════════════════════════════════════════
 // CAMPAIGN CREATE VIEW (Renders Master Input Blueprints)
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// CAMPAIGN CREATE VIEW — Auto-generation + Batch Preview/Launch
+// ═══════════════════════════════════════════════════════════
 function CampaignCreate({ onBack, onDone }) {
   const [form, setForm] = useState(() => {
     const saved = localStorage.getItem('neolix_wa_form')
-    return saved ? JSON.parse(saved) : { campaign_name: '', personalise: true, daily_limit: 50, send_order: 'as_selected' }
+    const parsed = saved ? JSON.parse(saved) : {}
+    return {
+      campaign_name: '',
+      campaign_info: '',
+      personalise: true,
+      daily_limit: 50,
+      send_order: 'as_selected',
+      ...parsed
+    }
   })
 
   const [activeTypes, setActiveTypes] = useState(() => {
@@ -341,35 +352,26 @@ function CampaignCreate({ onBack, onDone }) {
     return saved ? JSON.parse(saved) : { hook: '', detailed: '', image: '' }
   })
 
-  const [form, setForm] = useState(() => {
-  const saved = localStorage.getItem('neolix_wa_form')
-  const parsed = saved ? JSON.parse(saved) : {}
-  return {
-    campaign_name: '',
-    campaign_info: '',
-    personalise: true,
-    daily_limit: 50,
-    send_order: 'as_selected',
-    ...parsed
-  }
-})
-
   // ── Profile media state ───────────────────────────────────────────────
   const [profileMedia, setProfileMedia] = useState({ photos: [], pdfs: [], audio: '' })
-  const [selectedPhotos, setSelectedPhotos] = useState(new Set())  // indices of selected photos
-  const [selectedPdfs, setSelectedPdfs]     = useState(new Set())  // indices of selected pdfs
+  const [selectedPhotos, setSelectedPhotos] = useState(new Set())
+  const [selectedPdfs, setSelectedPdfs]     = useState(new Set())
   const [useProfileAudio, setUseProfileAudio] = useState(false)
-
-  // Extra one-off image upload (campaign-specific, not from profile)
   const [extraImageUrl, setExtraImageUrl] = useState(null)
 
   const [selected, setSelected]     = useState(new Map())
   const [focusedType, setFocusedType] = useState('detailed')
-  const [aiLoading, setAiLoading]   = useState(false)
-  const [submitting, setSubmitting] = useState(false)
+  const [autoGenLoading, setAutoGenLoading] = useState(false)
   const [mediaLoading, setMediaLoading] = useState(false)
 
+  // ── Preview/Review state ────────────────────────────────────────────────
+  const [drafts, setDrafts] = useState(null) // null = setup screen
+  const [draftIdx, setDraftIdx] = useState(0)
+  const [generatingPreview, setGeneratingPreview] = useState(false)
+  const [launching, setLaunching] = useState(false)
+
   const leadIds = Array.from(selected.keys())
+  const debounceRef = useRef(null)
 
   // Load profile media when image type is activated
   useEffect(() => {
@@ -383,7 +385,6 @@ function CampaignCreate({ onBack, onDone }) {
           pdfs:   data.product_pdfs   || [],
           audio:  data.audio_voice_base64 || '',
         })
-        // Auto-select all by default
         setSelectedPhotos(new Set((data.product_photos || []).map((_, i) => i)))
         setSelectedPdfs(new Set((data.product_pdfs || []).map((_, i) => i)))
         setUseProfileAudio(!!(data.audio_voice_base64))
@@ -394,7 +395,7 @@ function CampaignCreate({ onBack, onDone }) {
       }
     }
     load()
-  }, [activeTypes.has('image')])  // re-runs if image type toggled on
+  }, [activeTypes.has('image')])
 
   useEffect(() => { localStorage.setItem('neolix_wa_form', JSON.stringify(form)) }, [form])
   useEffect(() => { localStorage.setItem('neolix_wa_active_types', JSON.stringify(Array.from(activeTypes))) }, [activeTypes])
@@ -406,6 +407,34 @@ function CampaignCreate({ onBack, onDone }) {
     localStorage.removeItem('neolix_wa_messages')
   }
 
+  // ── Auto-generation for focused type ──────────────────────────────────
+  const autoGenerate = async (typeId) => {
+    if (!form.campaign_name.trim() && !form.campaign_info.trim()) return
+    setAutoGenLoading(true)
+    try {
+      const target = MSG_TYPES.find(x => x.id === typeId)
+      const { data } = await waApi.preview({
+        message: '', lead_id: 0, personalise: false,
+        generate_template: true, message_type: typeId,
+        context_hint: `${target.hint}. Campaign context: ${form.campaign_info || form.campaign_name}`
+      })
+      setMessages(p => ({ ...p, [typeId]: data.message || '' }))
+    } catch {
+      // silent fail — auto-gen, don't annoy the user
+    } finally {
+      setAutoGenLoading(false)
+    }
+  }
+
+  // Debounced auto-trigger when campaign_name / campaign_info changes
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      autoGenerate(focusedType)
+    }, 900)
+    return () => clearTimeout(debounceRef.current)
+  }, [form.campaign_name, form.campaign_info]) // eslint-disable-line
+
   const toggleType = (id) => {
     setActiveTypes(prev => {
       const next = new Set(prev)
@@ -415,9 +444,16 @@ function CampaignCreate({ onBack, onDone }) {
       } else {
         next.add(id)
         setFocusedType(id)
+        // Auto-generate for newly activated type if empty
+        if (!messages[id]?.trim()) autoGenerate(id)
       }
       return next
     })
+  }
+
+  const switchFocusedType = (id) => {
+    setFocusedType(id)
+    if (!messages[id]?.trim()) autoGenerate(id)
   }
 
   const togglePhoto = (i) => setSelectedPhotos(prev => {
@@ -432,72 +468,186 @@ function CampaignCreate({ onBack, onDone }) {
     return next
   })
 
-  const triggerAIGenerate = async () => {
-    setAiLoading(true)
+  // ── Generate Preview (batch, for focused type) ──────────────────────────
+  const generatePreview = async () => {
+    if (!form.campaign_name.trim()) return toast.error('Enter campaign name')
+    if (selected.size === 0) return toast.error('Select at least one lead')
+    if (!messages[focusedType]?.trim()) return toast.error(`Add a template for ${focusedType.toUpperCase()}`)
+
+    setGeneratingPreview(true)
     try {
-      const target = MSG_TYPES.find(x => x.id === focusedType)
-      const { data } = await waApi.preview({
-        message: '', lead_id: 0, personalise: false,
-        generate_template: true, message_type: focusedType,
-        context_hint: target.hint
+      const { data } = await waApi.previewBatch({
+        campaign_info: form.campaign_info,
+        lead_ids: leadIds.map(id => parseInt(id, 10) || id),
+        message_type: focusedType,
+        template: messages[focusedType],
+        personalise: form.personalise,
       })
-      setMessages(p => ({ ...p, [focusedType]: data.message || '' }))
-      toast.success(`${target.label} template drafted`)
-    } catch {
-      toast.error('AI generation failed')
+      setDrafts(data.drafts || [])
+      setDraftIdx(0)
+      toast.success(`${data.drafts?.length || 0} drafts ready — review below`)
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Draft generation failed')
     } finally {
-      setAiLoading(false)
+      setGeneratingPreview(false)
     }
   }
 
-  const submitCampaignPipeline = async () => {
-    if (!form.campaign_name.trim()) return toast.error('Enter campaign name')
-    if (selected.size === 0) return toast.error('Select at least one lead')
+  const updateDraftMessage = (value) => {
+    setDrafts(prev => prev.map((d, i) => i === draftIdx ? { ...d, message: value } : d))
+  }
 
-    const enabledList = Array.from(activeTypes)
-    for (const type of enabledList) {
-      if (type !== 'image' && !messages[type]?.trim())
-        return toast.error(`Add template for ${type.toUpperCase()}`)
-    }
+  const removeDraft = () => {
+    setDrafts(prev => {
+      const next = prev.filter((_, i) => i !== draftIdx)
+      if (draftIdx >= next.length) setDraftIdx(Math.max(0, next.length - 1))
+      return next
+    })
+  }
 
-    // Build final photos/pdfs/audio from profile selections + any extra upload
-    const finalPhotos = [
-      ...Array.from(selectedPhotos).map(i => profileMedia.photos[i]).filter(Boolean),
-      ...(extraImageUrl ? [extraImageUrl] : [])
-    ]
-    const finalPdfs = Array.from(selectedPdfs).map(i => profileMedia.pdfs[i]).filter(Boolean)
-    const finalAudio = useProfileAudio ? profileMedia.audio : ''
-
-    setSubmitting(true)
+  // ── Launch ───────────────────────────────────────────────────────────────
+  const launch = async () => {
+    if (!drafts || drafts.length === 0) return toast.error('No drafts to send')
+    setLaunching(true)
     try {
-      await waApi.campaignCreate({
-  campaign_name:     form.campaign_name,
-  campaign_info:     form.campaign_info,   // ← NEW
-  lead_ids:          leadIds.map(id => parseInt(id, 10) || id),
-  personalise:       form.personalise,
-  daily_limit:       parseInt(form.daily_limit, 10) || 50,
-  send_order:        form.send_order,
-  selected_types:    enabledList,
-  hook_template:     messages.hook     || '',
-  detailed_template: messages.detailed || '',
-  image_template:    messages.image    || '',
-  photos_array:      finalPhotos,
-  pdfs_array:        finalPdfs,
-  audio_voice_base64: finalAudio,
-  image_base64:      finalPhotos[0] ? finalPhotos[0].split(',')[1] : '',
-})
-      toast.success('Campaign deployed!')
+      const finalPhotos = [
+        ...Array.from(selectedPhotos).map(i => profileMedia.photos[i]).filter(Boolean),
+        ...(extraImageUrl ? [extraImageUrl] : [])
+      ]
+      const finalPdfs = Array.from(selectedPdfs).map(i => profileMedia.pdfs[i]).filter(Boolean)
+      const finalAudio = useProfileAudio ? profileMedia.audio : ''
+
+      await waApi.launch({
+        campaign_name: form.campaign_name,
+        campaign_info: form.campaign_info,
+        daily_limit: parseInt(form.daily_limit, 10) || 50,
+        message_type: focusedType,
+        photos_array: finalPhotos,
+        pdfs_array: finalPdfs,
+        audio_voice_base64: finalAudio,
+        drafts: drafts.map(d => ({
+          lead_id: d.lead_id,
+          phone: d.phone,
+          name: d.name,
+          company: d.company,
+          business_details: d.business_details,
+          message: d.message,
+        }))
+      })
+      toast.success('Campaign launched — sending messages now!')
       purgeFormCache()
       setTimeout(onDone, 500)
-    } catch (err) {
-      toast.error(err.response?.data?.detail || 'Failed to create campaign')
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Launch failed')
     } finally {
-      setSubmitting(false)
+      setLaunching(false)
     }
   }
 
   const activeConfigMeta = MSG_TYPES.find(x => x.id === focusedType)
 
+  // ─────────────────────────────────────────────────────────────────────
+  // REVIEW / PREVIEW SCREEN
+  // ─────────────────────────────────────────────────────────────────────
+  if (drafts) {
+    const d = drafts[draftIdx]
+    const total = drafts.length
+
+    if (total === 0) {
+      return (
+        <div className="space-y-4">
+          <button onClick={() => setDrafts(null)} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back to setup</button>
+          <div className="card flex flex-col items-center justify-center py-20 text-slate-400">
+            <p className="text-sm">No drafts left. Go back and regenerate.</p>
+          </div>
+        </div>
+      )
+    }
+
+    return (
+      <div className="space-y-4 max-w-2xl mx-auto">
+        <button onClick={() => setDrafts(null)} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back to setup</button>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Review Drafts</h2>
+            <p className="text-sm text-slate-400 mt-0.5">{total} message{total !== 1 ? 's' : ''} ready · Edit, then launch to send</p>
+          </div>
+          <button onClick={launch} disabled={launching} className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
+            {launching ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            {launching ? 'Launching…' : 'Launch'}
+          </button>
+        </div>
+
+        {/* Lead navigator */}
+        <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
+          <button disabled={draftIdx === 0} onClick={() => setDraftIdx(i => i - 1)}
+            className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center disabled:opacity-30 hover:bg-slate-100 transition-colors">
+            <ChevronLeft size={15} />
+          </button>
+          <div className="text-center">
+            <p className="text-sm font-bold text-slate-900">{d.company || d.name || 'Unknown'}</p>
+            <p className="text-xs text-slate-400">+{d.phone} · {draftIdx + 1} of {total}</p>
+          </div>
+          <button disabled={draftIdx === total - 1} onClick={() => setDraftIdx(i => i + 1)}
+            className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center disabled:opacity-30 hover:bg-slate-100 transition-colors">
+            <ArrowRight size={15} />
+          </button>
+        </div>
+
+        {/* Editable message + WhatsApp-style preview */}
+        <div className="card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="field-label mb-0">Message</label>
+            <button onClick={removeDraft} className="text-slate-400 hover:text-red-500">
+              <X size={15} />
+            </button>
+          </div>
+          <textarea
+            className="textarea h-40 text-sm"
+            value={d.message}
+            onChange={e => updateDraftMessage(e.target.value)}
+          />
+
+          {/* WhatsApp bubble preview */}
+          <div>
+            <label className="field-label">Preview</label>
+            <div className="rounded-2xl border border-slate-200 bg-[#e5ddd5] p-4">
+              <div className="bg-[#dcf8c6] rounded-lg rounded-tr-none px-3 py-2 max-w-[85%] ml-auto shadow-sm">
+                <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{d.message || '—'}</p>
+                {focusedType === 'image' && (
+                  <div className="mt-2 space-y-1.5">
+                    {selectedPhotos.size > 0 && (
+                      <div className="flex gap-1.5 flex-wrap">
+                        {Array.from(selectedPhotos).slice(0, 4).map(i => (
+                          <img key={i} src={profileMedia.photos[i]} alt="" className="w-12 h-12 rounded-lg object-cover border border-white/50" />
+                        ))}
+                      </div>
+                    )}
+                    {selectedPdfs.size > 0 && (
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-white/60 rounded-lg px-2 py-1">
+                        <FileText size={12} /> {selectedPdfs.size} PDF{selectedPdfs.size !== 1 ? 's' : ''} attached
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-[10px] text-slate-400 text-right mt-1">12:00 PM</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <button onClick={launch} disabled={launching} className="w-full px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-40">
+          {launching ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+          {launching ? 'Launching…' : `Launch to ${total} Lead${total !== 1 ? 's' : ''}`}
+        </button>
+      </div>
+    )
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // SETUP SCREEN
+  // ─────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-4">
       <button onClick={onBack} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back</button>
@@ -506,30 +656,31 @@ function CampaignCreate({ onBack, onDone }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="space-y-4">
           <div className="card p-5 space-y-4">
-           <div className="grid grid-cols-2 gap-3">
-  <div>
-    <label className="field-label">Campaign Name</label>
-    <input className="input" placeholder="e.g. Tech Leads Q1" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
-  </div>
-  <div>
-    <label className="field-label">Daily Limit</label>
-    <input type="number" min={1} max={50} className="input" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value })} />
-  </div>
-</div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="field-label">Campaign Name</label>
+                <input className="input" placeholder="e.g. Tech Leads Q1" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
+              </div>
+              <div>
+                <label className="field-label">Daily Limit</label>
+                <input type="number" min={1} max={50} className="input" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value })} />
+              </div>
+            </div>
 
-<div>
-  <div className="flex items-center gap-1 mb-1">
-    <label className="field-label mb-0">Campaign Info / Event Context</label>
-    <div className="group relative cursor-pointer text-slate-400 hover:text-slate-600">
-      <HelpCircle size={13} />
-      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-normal shadow-md">
-        Used as {'{campaign_info}'} in your message templates — e.g. "Hey, remember we met at [Campaign Info]?"
-      </span>
-    </div>
-  </div>
-  <input className="input" placeholder="e.g., Medical Physiotherapy Function, Kochi"
-    value={form.campaign_info} onChange={e => setForm({ ...form, campaign_info: e.target.value })} />
-</div>
+            <div>
+              <div className="flex items-center gap-1 mb-1">
+                <label className="field-label mb-0">Campaign Info / Event Context</label>
+                <div className="group relative cursor-pointer text-slate-400 hover:text-slate-600">
+                  <HelpCircle size={13} />
+                  <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-normal shadow-md">
+                    Used as {'{campaign_info}'} in your message templates — e.g. "Hey, remember we met at [Campaign Info]?"
+                  </span>
+                </div>
+              </div>
+              <input className="input" placeholder="e.g., Medical Physiotherapy Function, Kochi"
+                value={form.campaign_info} onChange={e => setForm({ ...form, campaign_info: e.target.value })} />
+            </div>
+
             {/* Variant selector */}
             <div>
               <label className="field-label mb-1.5 block">Message Variants</label>
@@ -549,7 +700,7 @@ function CampaignCreate({ onBack, onDone }) {
             <div className="border-t pt-3 space-y-3">
               <div className="flex bg-slate-100 p-1 rounded-xl gap-1">
                 {Array.from(activeTypes).map(typeId => (
-                  <button key={typeId} type="button" onClick={() => setFocusedType(typeId)}
+                  <button key={typeId} type="button" onClick={() => switchFocusedType(typeId)}
                     className={`flex-1 py-1 text-center font-bold text-xs rounded-lg uppercase transition-all
                       ${focusedType === typeId ? 'bg-white shadow text-slate-900' : 'text-slate-400'}`}>
                     {typeId}
@@ -566,7 +717,6 @@ function CampaignCreate({ onBack, onDone }) {
                     </div>
                   ) : (
                     <>
-                      {/* Photos */}
                       {profileMedia.photos.length > 0 ? (
                         <div>
                           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
@@ -593,7 +743,6 @@ function CampaignCreate({ onBack, onDone }) {
                         </div>
                       )}
 
-                      {/* PDFs */}
                       {profileMedia.pdfs.length > 0 ? (
                         <div>
                           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
@@ -617,7 +766,6 @@ function CampaignCreate({ onBack, onDone }) {
                         </div>
                       )}
 
-                      {/* Voice note */}
                       {profileMedia.audio ? (
                         <div>
                           <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Voice Note</p>
@@ -635,7 +783,6 @@ function CampaignCreate({ onBack, onDone }) {
                         </div>
                       )}
 
-                      {/* Extra one-off image upload */}
                       <div>
                         <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Add Extra Image (optional)</p>
                         {extraImageUrl ? (
@@ -666,16 +813,17 @@ function CampaignCreate({ onBack, onDone }) {
                 </div>
               )}
 
-              {/* Caption template for image, or text template for hook/detailed */}
+              {/* Template editor — auto-generated, no manual AI button */}
               <div className="space-y-1.5">
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-bold text-slate-500 uppercase">
                     {activeConfigMeta?.label} Template
                   </span>
-                  <button type="button" onClick={triggerAIGenerate} disabled={aiLoading}
-                    className="text-xs font-bold text-emerald-600 flex items-center gap-1">
-                    {aiLoading ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />} AI Generate
-                  </button>
+                  {autoGenLoading && (
+                    <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+                      <Loader2 size={11} className="animate-spin" /> Auto-generating…
+                    </span>
+                  )}
                 </div>
                 <textarea
                   className="textarea h-32 font-mono text-xs"
@@ -683,6 +831,7 @@ function CampaignCreate({ onBack, onDone }) {
                   onChange={e => setMessages({ ...messages, [focusedType]: e.target.value })}
                   placeholder={activeConfigMeta?.placeholder}
                 />
+                <p className="text-[10px] text-slate-400">Auto-fills as you type your campaign name/context above. Edit freely.</p>
               </div>
             </div>
 
@@ -713,7 +862,7 @@ function CampaignCreate({ onBack, onDone }) {
             </div>
             <div className="bg-white p-3 border rounded-xl space-y-2 text-[11px] text-slate-600 font-medium">
               <p>🎯 Leads selected: <strong>{selected.size}</strong></p>
-              <p>📨 Variants: <strong>{Array.from(activeTypes).join(', ')}</strong></p>
+              <p>📨 Active variant: <strong>{focusedType}</strong></p>
               {activeTypes.has('image') && (
                 <>
                   <p>🖼 Photos: <strong>{selectedPhotos.size} from profile{extraImageUrl ? ' + 1 extra' : ''}</strong></p>
@@ -723,7 +872,7 @@ function CampaignCreate({ onBack, onDone }) {
               )}
             </div>
             <p className="text-xs text-slate-500 leading-relaxed">
-              Deploy to generate AI drafts in the background. Review them in the campaign detail view before sending.
+              Generate a preview to review and edit AI drafts per lead, then launch to send immediately.
             </p>
           </div>
         </div>
@@ -731,10 +880,10 @@ function CampaignCreate({ onBack, onDone }) {
 
       <div className="flex gap-2 justify-end pt-3 border-t">
         <button type="button" onClick={onBack} className="px-4 py-1.5 text-xs border rounded-xl font-bold hover:bg-slate-50">Cancel</button>
-        <button type="button" onClick={submitCampaignPipeline}
-          disabled={submitting || selected.size === 0}
+        <button type="button" onClick={generatePreview}
+          disabled={generatingPreview || selected.size === 0}
           className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
-          {submitting ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />} Deploy Campaign
+          {generatingPreview ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} Generate Preview
         </button>
       </div>
     </div>
