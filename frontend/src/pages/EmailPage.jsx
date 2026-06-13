@@ -287,17 +287,35 @@ function CampaignCreate({ onBack, onDone }) {
         <button onClick={() => setDrafts(null)} className="btn-ghost -ml-2 mb-4">
           <ChevronLeft size={16} /> Back to setup
         </button>
-        <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-xl font-bold text-slate-900">Review Drafts</h2>
             <p className="text-sm text-slate-400 mt-0.5">
-              {drafts.length} email{drafts.length !== 1 ? 's' : ''} ready · {tpl.label} template · Edit any draft, then launch to send
+              {drafts.length} email{drafts.length !== 1 ? 's' : ''} ready · Edit any draft, then launch to send
             </p>
           </div>
           <button onClick={launch} disabled={launching || drafts.length === 0} className="btn-primary">
             {launching ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
             {launching ? 'Launching…' : 'Launch'}
           </button>
+        </div>
+
+        <div className="mb-5">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-1.5">Try a different template</p>
+          <div className="flex gap-2">
+            {EMAIL_TEMPLATES.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setForm(p => ({...p, template_id: t.id}))}
+                title={t.label}
+                className={`flex items-center gap-1.5 rounded-lg border-2 px-2.5 py-1.5 transition-all ${form.template_id === t.id ? 'border-slate-900 shadow-sm' : 'border-slate-200 hover:border-slate-300'}`}
+              >
+                <span style={{ backgroundColor: t.primary }} className="w-3.5 h-3.5 rounded-full flex-shrink-0" />
+                <span className="text-[11px] font-semibold text-slate-600">{t.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="space-y-5">
