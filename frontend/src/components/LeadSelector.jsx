@@ -102,10 +102,11 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
     return phoneOk || emailOk
   }
 
-  const handleBatchSubmit = async () => {
+  const handleBatchSubmit = async () => { 
     const validRows = rows.filter(rowIsValid);
     if (validRows.length === 0) {
-      return toast.error('Provide at least one valid row');
+      let msg = 'Provide at least one valid row';
+      return toast.error(msg);
     }
 
     setLoading(true);
@@ -113,7 +114,6 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
     const aggregatedIds = [];
 
     try {
-      // 1. Process all rows and collect IDs
       await Promise.all(
         validRows.map(async (row) => {
           const phone = normalizePhone(row.phone);
@@ -130,14 +130,11 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
           } else if (needsPhone) {
             payload.email = `${phone}@neolix-channel.local`;
           }
-
+          
           try {
             const { data } = await leadsApi.addSingle(payload);
-            if (data.lead_ids?.length) {
-              aggregatedIds.push(...data.lead_ids);
-            } else if (data.id || data.lead_id) {
-              aggregatedIds.push(data.id || data.lead_id);
-            }
+            if (data.lead_ids?.length) aggregatedIds.push(...data.lead_ids);
+            else if (data.id || data.lead_id) aggregatedIds.push(data.id || data.lead_id);
             processedCount++;
           } catch (e) {
             console.error('Database insertion error:', e);
@@ -145,20 +142,17 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
         })
       );
 
-      // 2. Trigger the Preview/Generation Pipeline via onAdded
       if (aggregatedIds.length > 0) {
-        toast.success(`Registered ${processedCount} contacts! AI is generating drafts...`);
-        onAdded(aggregatedIds); // This triggers the parent to start the campaign
+        onAdded(aggregatedIds);
+        toast.success(`Successfully registered ${processedCount} new contacts!`);
       }
-      
       setRows([{ phone: '', email: '', name: '', company: '', businessDesc: '' }]);
-      
     } catch (err) {
       toast.error('Batch registration pipeline error');
     } finally {
       setLoading(false);
     }
-  };
+  
 
     setLoading(true)
     let processedCount = 0
@@ -263,7 +257,7 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
       </div>
     </div>
   )
-
+}
 
 function UploadPanel({ onAdded }) {
   const [loading, setLoading] = useState(false)
