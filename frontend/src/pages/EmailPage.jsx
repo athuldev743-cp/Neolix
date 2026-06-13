@@ -270,117 +270,59 @@ function CampaignDetail({ id, onBack }) {
 
 // ── Campaign create ───────────────────────────────────────
 function CampaignCreate({ onBack, onDone }) {
-  const [form, setForm] = useState({ campaign_name:'', subject_template:'', body_template:'', personalise:true, daily_limit:100, send_order:'as_selected' })
+  const [form, setForm] = useState({ 
+    campaign_name: '', 
+    campaign_info: '', // NEW: This replaces subject/body templates
+    personalise: true, 
+    daily_limit: 100 
+  })
   const [selected, setSelected] = useState(new Map())
   const [submitting, setSubmitting] = useState(false)
-  const [aiLoading, setAiLoading]   = useState(false)
 
   const submit = async () => {
-    if (!form.campaign_name || !form.subject_template || !form.body_template) { toast.error('Fill name, subject, body templates'); return }
-    if (selected.size === 0) { toast.error('Select target leads to ingest'); return }
+    if (!form.campaign_name || !form.campaign_info) { 
+      toast.error('Name and context/info are required'); return 
+    }
+    if (selected.size === 0) { toast.error('Select target leads'); return }
+    
     setSubmitting(true)
     try {
-      await campaignApi.create({ ...form, lead_ids: Array.from(selected.keys()) })
-      toast.success(`Campaign initialized! Processing background generations...`)
-      setTimeout(onDone, 800)
-    } catch (e) { toast.error(e.response?.data?.detail || 'Execution configuration failure') } finally { setSubmitting(false) }
+      // Backend now takes campaign_info to seed the AI
+      await campaignApi.create({ 
+        ...form, 
+        lead_ids: Array.from(selected.keys()) 
+      })
+      toast.success('AI is generating your campaign drafts...')
+      onDone() // Redirects back to list to see the "generating" status
+    } catch (e) { 
+      toast.error(e.response?.data?.detail || 'Generation failed') 
+    } finally { setSubmitting(false) }
   }
 
   return (
     <div>
       <button onClick={onBack} className="btn-ghost -ml-2 mb-4"><ChevronLeft size={16} /> Back</button>
-      <h2 className="text-xl font-bold text-slate-900 mb-5">New Email Campaign</h2>
+      <h2 className="text-xl font-bold text-slate-900 mb-5">New AI Campaign</h2>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="space-y-4">
-          <div className="card p-5 space-y-4">
-            <div>
-              <label className="field-label">Campaign name</label>
-              <input className="input" placeholder="e.g. Automotive Outreach — May"
-                value={form.campaign_name} onChange={e => setForm(p => ({...p, campaign_name: e.target.value}))} />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="field-label">Daily limit <span className="normal-case font-normal text-slate-400">(max 200)</span></label>
-                <input type="number" min={1} max={200} className="input" value={form.daily_limit}
-                  onChange={e => setForm(p => ({...p, daily_limit: parseInt(e.target.value)||100}))} />
-              </div>
-              <div>
-                <label className="field-label">Send order</label>
-                <select className="input" value={form.send_order} onChange={e => setForm(p => ({...p, send_order: e.target.value}))}>
-                  <option value="as_selected">As selected</option>
-                  <option value="random">Random</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="field-label mb-0">Base Subject Line Template</label>
-                <button type="button" onClick={async () => {
-                  setAiLoading(true)
-                  try {
-                    const { data } = await campaignApi.preview({
-                      subject: '', body: '', lead_id: 0, personalise: false, generate_template: true,
-                      context_hint: form.campaign_name || 'cold outreach to business leads',
-                    })
-                    if (data.subject) setForm(p => ({...p, subject_template: data.subject}))
-                    if (data.body)    setForm(p => ({...p, body_template: data.body}))
-                  } catch (e) { toast.error('AI blueprint generation failed') } finally { setAiLoading(false) }
-                }} disabled={aiLoading} className="btn-ghost btn-sm text-blue-600 text-xs">
-                  {aiLoading ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} />} Create AI Template Blueprint
-                </button>
-              </div>
-              <input className="input" placeholder="Quick question for {lead_company}"
-                value={form.subject_template} onChange={e => setForm(p => ({...p, subject_template: e.target.value}))} />
-            </div>
-            <div>
-              <label className="field-label">Base Body Copy Template</label>
-              <textarea className="textarea h-40" placeholder={"Hi {lead_name},\n\nI noticed {lead_company}..."}
-                value={form.body_template} onChange={e => setForm(p => ({...p, body_template: e.target.value}))} />
-              <p className="text-xs text-blue-600 font-medium mt-1">✨ Dynamic multi-tenant profile fields will inject automatically on launch</p>
-            </div>
-            <div className="flex items-center justify-between py-2 border-t border-slate-100">
-              <div>
-                <p className="text-sm font-medium text-slate-800">Background AI Personalisation</p>
-                <p className="text-xs text-slate-400">Groq loops asynchronously to generate custom drafts per lead</p>
-              </div>
-              <button type="button" onClick={() => setForm(p => ({...p, personalise: !p.personalise}))}
-                className={`w-11 h-6 rounded-full relative flex-shrink-0 transition-all ${form.personalise ? 'bg-blue-500' : 'bg-slate-200'}`}>
-                <span className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all ${form.personalise ? 'left-5' : 'left-0.5'}`} />
-              </button>
-            </div>
-          </div>
-
-          <div className="card p-5">
-            <label className="field-label mb-3 block">Target Outreach Segment List Selection</label>
-            <LeadSelector selected={selected} onChange={setSelected} requirePhone={false} />
-          </div>
-        </div>
-
-        {/* Right Info Notice Panel Placeholder */}
+      <div className="card p-5 space-y-4 max-w-2xl">
         <div>
-          <div className="card bg-slate-50 border border-slate-200 p-6 sticky top-6 space-y-4 rounded-2xl">
-            <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
-              <Zap size={15} className="text-amber-500" /> Automated Pipeline Blueprint Flow
-            </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Neolix has completely retired local generation waiting loops. When you click launch, the backend immediately distributes your custom body blueprints into concurrent Groq processing threads.
-            </p>
-            <div className="bg-white p-3 border rounded-xl space-y-2 text-[11px] text-slate-600 font-medium">
-              <p>🟢 Step 1: Initialize template layouts and variables.</p>
-              <p>🟡 Step 2: System builds isolated custom copies automatically in background collections.</p>
-              <p>🔵 Step 3: Open details panel anytime to refine copy strings or confirm active dispatch hooks.</p>
-            </div>
-          </div>
+          <label className="field-label">Campaign Name</label>
+          <input className="input" placeholder="e.g. Startup Fest Follow-up"
+            value={form.campaign_name} onChange={e => setForm(p => ({...p, campaign_name: e.target.value}))} />
         </div>
-      </div>
 
-      <div className="mt-6 pt-5 border-t border-slate-200 flex items-center gap-3">
-        <button onClick={submit} disabled={submitting} className="btn-primary px-8">
-          {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-          {submitting ? 'Initializing Matrix…' : `Launch Campaign for ${selected.size} Targets`}
+        <div>
+          <label className="field-label">Campaign Context / AI Prompt</label>
+          <textarea className="textarea h-24" placeholder="e.g. We met at the Startup Fest. You were interested in our automated lead generation system."
+            value={form.campaign_info} onChange={e => setForm(p => ({...p, campaign_info: e.target.value}))} />
+          <p className="text-xs text-slate-400 mt-1">The AI will use this context to write a natural, professional email for every lead.</p>
+        </div>
+
+        <LeadSelector selected={selected} onChange={setSelected} />
+
+        <button onClick={submit} disabled={submitting} className="btn-primary w-full mt-4">
+          {submitting ? <Loader2 className="animate-spin" /> : 'Launch & Generate Drafts'}
         </button>
-        <button onClick={onBack} className="btn-ghost">Cancel</button>
       </div>
     </div>
   )
