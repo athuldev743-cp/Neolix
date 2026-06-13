@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Inbox, RefreshCw, Plus, Loader2, ChevronLeft,
-  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight, Mic
+  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight, Mic, HelpCircle
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi, repliesApi, api } from '../services/api'
@@ -17,6 +17,11 @@ const statusBadge = {
   failed: 'badge-red', 
   paused: 'badge-orange' 
 }
+
+function interpolateCampaignInfo(template, campaignInfo) {
+  return (template || '').replace(/\{campaign_info\}/g, campaignInfo || '')
+}
+
 
 function timeAgo(iso) {
   if (!iso) return '—'
@@ -35,11 +40,10 @@ function TypeIcon({ id, size = 13 }) {
 }
 
 const MSG_TYPES = [
-  { id: 'hook', label: 'Hook', sub: 'Short punchy opener', placeholder: `Hi {lead_name}\n\nWe help {lead_company} get better results faster.\n\nWorth a chat?`, hint: 'hook short punchy opener under 3 lines', rows: 4 },
-  { id: 'detailed', label: 'Detailed', sub: '80-120 word outreach', placeholder: `Hi {lead_name},\n\nI came across {lead_company} and wanted to reach out personally.\n\n[Your value proposition here]\n\nWould love a quick 10-min call this week.\n\nWarm regards,\n{sender_name}`, hint: 'detailed professional cold outreach 80-120 words', rows: 9 },
-  { id: 'image', label: 'Image', sub: 'Image + caption', placeholder: `Hi {lead_name} - sharing our catalogue for {lead_company}.\nHappy to discuss! - {sender_name}`, hint: 'short 1-2 line caption for image attachment', rows: 3 },
+  { id: 'hook', label: 'Hook', sub: 'Short punchy opener', placeholder: `Hi {lead_name}\n\nWe help {lead_company} get better results faster.\n\nRemember our chat at {campaign_info}?\n\nWorth a chat?`, hint: 'hook short punchy opener under 3 lines referencing the campaign context', rows: 4 },
+  { id: 'detailed', label: 'Detailed', sub: '80-120 word outreach', placeholder: `Hi {lead_name},\n\nIt was great meeting you at {campaign_info}. I wanted to reach out personally.\n\n[Your value proposition here]\n\nWould love a quick 10-min call this week.\n\nWarm regards,\n{sender_name}`, hint: 'detailed professional cold outreach 80-120 words referencing the campaign context', rows: 9 },
+  { id: 'image', label: 'Image', sub: 'Image + caption', placeholder: `Hi {lead_name} - sharing our catalogue for {lead_company} following up from {campaign_info}.\nHappy to discuss! - {sender_name}`, hint: 'short 1-2 line caption for image attachment', rows: 3 },
 ]
-
 // ═══════════════════════════════════════════════════════════
 // BAILEYS LINK AUTH MONITOR
 // ═══════════════════════════════════════════════════════════
@@ -337,6 +341,19 @@ function CampaignCreate({ onBack, onDone }) {
     return saved ? JSON.parse(saved) : { hook: '', detailed: '', image: '' }
   })
 
+  const [form, setForm] = useState(() => {
+  const saved = localStorage.getItem('neolix_wa_form')
+  const parsed = saved ? JSON.parse(saved) : {}
+  return {
+    campaign_name: '',
+    campaign_info: '',
+    personalise: true,
+    daily_limit: 50,
+    send_order: 'as_selected',
+    ...parsed
+  }
+})
+
   // ── Profile media state ───────────────────────────────────────────────
   const [profileMedia, setProfileMedia] = useState({ photos: [], pdfs: [], audio: '' })
   const [selectedPhotos, setSelectedPhotos] = useState(new Set())  // indices of selected photos
@@ -454,22 +471,21 @@ function CampaignCreate({ onBack, onDone }) {
     setSubmitting(true)
     try {
       await waApi.campaignCreate({
-        campaign_name:     form.campaign_name,
-        lead_ids:          leadIds.map(id => parseInt(id, 10) || id),
-        personalise:       form.personalise,
-        daily_limit:       parseInt(form.daily_limit, 10) || 50,
-        send_order:        form.send_order,
-        selected_types:    enabledList,
-        hook_template:     messages.hook     || '',
-        detailed_template: messages.detailed || '',
-        image_template:    messages.image    || '',
-        // Pass selected media directly into the campaign payload
-        photos_array:      finalPhotos,
-        pdfs_array:        finalPdfs,
-        audio_voice_base64: finalAudio,
-        // Keep image_base64 for backward compat (first photo)
-        image_base64:      finalPhotos[0] ? finalPhotos[0].split(',')[1] : '',
-      })
+  campaign_name:     form.campaign_name,
+  campaign_info:     form.campaign_info,   // ← NEW
+  lead_ids:          leadIds.map(id => parseInt(id, 10) || id),
+  personalise:       form.personalise,
+  daily_limit:       parseInt(form.daily_limit, 10) || 50,
+  send_order:        form.send_order,
+  selected_types:    enabledList,
+  hook_template:     messages.hook     || '',
+  detailed_template: messages.detailed || '',
+  image_template:    messages.image    || '',
+  photos_array:      finalPhotos,
+  pdfs_array:        finalPdfs,
+  audio_voice_base64: finalAudio,
+  image_base64:      finalPhotos[0] ? finalPhotos[0].split(',')[1] : '',
+})
       toast.success('Campaign deployed!')
       purgeFormCache()
       setTimeout(onDone, 500)
@@ -490,17 +506,30 @@ function CampaignCreate({ onBack, onDone }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="space-y-4">
           <div className="card p-5 space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="field-label">Campaign Name</label>
-                <input className="input" placeholder="e.g. Tech Leads Q1" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
-              </div>
-              <div>
-                <label className="field-label">Daily Limit</label>
-                <input type="number" min={1} max={50} className="input" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value })} />
-              </div>
-            </div>
+           <div className="grid grid-cols-2 gap-3">
+  <div>
+    <label className="field-label">Campaign Name</label>
+    <input className="input" placeholder="e.g. Tech Leads Q1" value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
+  </div>
+  <div>
+    <label className="field-label">Daily Limit</label>
+    <input type="number" min={1} max={50} className="input" value={form.daily_limit} onChange={e => setForm({ ...form, daily_limit: e.target.value })} />
+  </div>
+</div>
 
+<div>
+  <div className="flex items-center gap-1 mb-1">
+    <label className="field-label mb-0">Campaign Info / Event Context</label>
+    <div className="group relative cursor-pointer text-slate-400 hover:text-slate-600">
+      <HelpCircle size={13} />
+      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-56 p-2 bg-slate-800 text-white text-[10px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-normal shadow-md">
+        Used as {'{campaign_info}'} in your message templates — e.g. "Hey, remember we met at [Campaign Info]?"
+      </span>
+    </div>
+  </div>
+  <input className="input" placeholder="e.g., Medical Physiotherapy Function, Kochi"
+    value={form.campaign_info} onChange={e => setForm({ ...form, campaign_info: e.target.value })} />
+</div>
             {/* Variant selector */}
             <div>
               <label className="field-label mb-1.5 block">Message Variants</label>
