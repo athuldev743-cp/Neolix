@@ -40,21 +40,27 @@ function CampaignCreate({ onBack, onDone }) {
   const [form, setForm] = useState({ campaign_name: '', campaign_info: '' })
   const [selected, setSelected] = useState(new Map())
 
+  // This is the function passed to onAdded
   const submit = async (leadIds) => {
     if (!form.campaign_name || !form.campaign_info) return toast.error('Required fields missing')
     try {
+      // 1. Create the campaign
       const { data } = await campaignApi.create({ ...form, lead_ids: leadIds })
-      toast.success('Matrix committed! Previewing...')
-      onDone(data.campaign_id)
+      
+      // 2. Notify the parent to switch to the detail view immediately
+      toast.success('Matrix committed! Generating preview...')
+      onDone(data.campaign_id) 
     } catch { toast.error('Creation failed') }
   }
 
   return (
     <div className="space-y-4">
-      <button onClick={onBack} className="btn-ghost flex items-center"><ChevronLeft size={16} /> Back</button>
-      <input className="input w-full" placeholder="Campaign Name" value={form.campaign_name} onChange={e => setForm(p => ({...p, campaign_name: e.target.value}))} />
-      <textarea className="textarea w-full" placeholder="Context" value={form.campaign_info} onChange={e => setForm(p => ({...p, campaign_info: e.target.value}))} />
-      <LeadSelector selected={selected} onChange={setSelected} onAdded={submit} />
+      {/* ... inputs ... */}
+      <LeadSelector 
+        selected={selected} 
+        onChange={setSelected} 
+        onAdded={submit} // <--- This triggers the pipeline
+      />
     </div>
   )
 }
@@ -102,14 +108,22 @@ function CampaignDetail({ id, onBack }) {
 // ── 2. Main Page Export ───────────────────────────────────────────────────────
 
 export default function EmailPage() {
-  const [view, setView] = useState('list')
+  const [view, setView] = useState('list') 
   const [detailId, setDetailId] = useState(null)
-  
+
   return (
-    <div className="p-6">
-      {view === 'list' && <CampaignList onCreate={() => setView('create')} onDetail={(id) => { setDetailId(id); setView('detail') }} />}
-      {view === 'create' && <CampaignCreate onBack={() => setView('list')} onDone={(id) => { setDetailId(id); setView('detail') }} />}
-      {view === 'detail' && <CampaignDetail id={detailId} onBack={() => setView('list')} />}
+    <div>
+      {/* ... */}
+      {view === 'create' && (
+        <CampaignCreate 
+          onBack={() => setView('list')} 
+          onDone={(id) => { 
+            setDetailId(id); // Store the new ID
+            setView('detail'); // Switch to preview
+          }} 
+        />
+      )}
+      {/* ... */}
     </div>
   )
 }
