@@ -177,11 +177,47 @@ function CampaignDetail({ id, onBack }) {
 
 // ── Campaign create ───────────────────────────────────────
 // ── Campaign create ───────────────────────────────────────
+// ── Email templates (mirrors backend EMAIL_TEMPLATES) ────────────────────
+const EMAIL_TEMPLATES = [
+  { id: 'navy',    label: 'Navy Blue',     primary: '#1e3a5f', accent: '#2563eb', bg: '#f4f6f9' },
+  { id: 'emerald', label: 'Emerald',       primary: '#065f46', accent: '#10b981', bg: '#f3faf6' },
+  { id: 'slate',   label: 'Minimal Slate', primary: '#1e293b', accent: '#64748b', bg: '#f8fafc' },
+  { id: 'amber',   label: 'Warm Amber',    primary: '#92400e', accent: '#f59e0b', bg: '#fdf8f1' },
+  { id: 'violet',  label: 'Violet',        primary: '#4c1d95', accent: '#8b5cf6', bg: '#f6f4fc' },
+]
+
+// ── Template picker swatch grid ──────────────────────────────────────────
+function TemplatePicker({ selected, onSelect }) {
+  return (
+    <div>
+      <label className="field-label">Email Template</label>
+      <div className="grid grid-cols-5 gap-2 mt-1">
+        {EMAIL_TEMPLATES.map(t => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => onSelect(t.id)}
+            className={`rounded-xl border-2 overflow-hidden text-left transition-all ${selected === t.id ? 'border-slate-900 shadow-md' : 'border-slate-200 hover:border-slate-300'}`}
+          >
+            <div style={{ backgroundColor: t.primary }} className="h-8 w-full" />
+            <div style={{ backgroundColor: t.bg }} className="h-10 w-full flex items-center justify-center">
+              <div style={{ backgroundColor: t.accent }} className="w-6 h-1.5 rounded-full" />
+            </div>
+            <p className="text-[10px] font-semibold text-slate-600 text-center py-1 truncate px-1">{t.label}</p>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Campaign create ───────────────────────────────────────
 function CampaignCreate({ onBack, onDone }) {
   const [form, setForm] = useState({
     campaign_name: '',
     campaign_info: '',
-    daily_limit: 100
+    daily_limit: 100,
+    template_id: 'navy'
   })
   const [selected, setSelected] = useState(new Map())
   const [drafts, setDrafts] = useState(null) // null = no preview yet
@@ -196,7 +232,7 @@ function CampaignCreate({ onBack, onDone }) {
 
     setGenerating(true)
     try {
-      const { data } = await campaignApi.previewBatch(form.campaign_info, Array.from(selected.keys()))
+      const { data } = await campaignApi.previewBatch(form.campaign_info, Array.from(selected.keys()), form.template_id)
       setDrafts(data.drafts || [])
       toast.success('Drafts generated — review and edit below')
     } catch (e) {
@@ -222,6 +258,7 @@ function CampaignCreate({ onBack, onDone }) {
         campaign_name: form.campaign_name,
         campaign_info: form.campaign_info,
         daily_limit: form.daily_limit,
+        template_id: form.template_id,
         drafts: drafts.map(d => ({
           lead_id: d.lead_id,
           email: d.email,
@@ -243,6 +280,8 @@ function CampaignCreate({ onBack, onDone }) {
 
   // ── Preview / Edit screen ──────────────────────────────
   if (drafts) {
+    const tpl = EMAIL_TEMPLATES.find(t => t.id === form.template_id) || EMAIL_TEMPLATES[0]
+
     return (
       <div>
         <button onClick={() => setDrafts(null)} className="btn-ghost -ml-2 mb-4">
@@ -252,7 +291,7 @@ function CampaignCreate({ onBack, onDone }) {
           <div>
             <h2 className="text-xl font-bold text-slate-900">Review Drafts</h2>
             <p className="text-sm text-slate-400 mt-0.5">
-              {drafts.length} email{drafts.length !== 1 ? 's' : ''} ready · Edit any draft below, then launch to send immediately
+              {drafts.length} email{drafts.length !== 1 ? 's' : ''} ready · {tpl.label} template · Edit any draft, then launch to send
             </p>
           </div>
           <button onClick={launch} disabled={launching || drafts.length === 0} className="btn-primary">
@@ -261,25 +300,41 @@ function CampaignCreate({ onBack, onDone }) {
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-5">
           {drafts.map((d, idx) => (
-            <div key={d.lead_id} className="card p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-semibold text-slate-900">{d.company_name || d.contact_name || 'Unnamed Lead'}</p>
-                  <p className="text-xs text-blue-600 font-mono">{d.email}</p>
+            <div key={d.lead_id} className="card p-5 grid grid-cols-1 md:grid-cols-2 gap-5">
+              {/* Editable fields */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-semibold text-slate-900">{d.company_name || d.contact_name || 'Unnamed Lead'}</p>
+                    <p className="text-xs text-blue-600 font-mono">{d.email}</p>
+                  </div>
+                  <button onClick={() => removeDraft(idx)} className="text-slate-400 hover:text-red-500">
+                    <X size={16} />
+                  </button>
                 </div>
-                <button onClick={() => removeDraft(idx)} className="text-slate-400 hover:text-red-500">
-                  <X size={16} />
-                </button>
+                <div>
+                  <label className="field-label">Subject</label>
+                  <input className="input" value={d.subject} onChange={e => updateDraft(idx, 'subject', e.target.value)} />
+                </div>
+                <div>
+                  <label className="field-label">Body</label>
+                  <textarea className="textarea h-56" value={d.body} onChange={e => updateDraft(idx, 'body', e.target.value)} />
+                </div>
               </div>
+
+              {/* Live HTML preview in selected template */}
               <div>
-                <label className="field-label">Subject</label>
-                <input className="input" value={d.subject} onChange={e => updateDraft(idx, 'subject', e.target.value)} />
-              </div>
-              <div>
-                <label className="field-label">Body</label>
-                <textarea className="textarea h-32" value={d.body} onChange={e => updateDraft(idx, 'body', e.target.value)} />
+                <label className="field-label">Preview ({tpl.label})</label>
+                <div className="rounded-xl border border-slate-200 overflow-hidden h-[28rem] bg-slate-100">
+                  <iframe
+                    title={`preview-${d.lead_id}`}
+                    srcDoc={buildLivePreviewHtml(tpl, d.subject, d.body)}
+                    className="w-full h-full border-0"
+                    sandbox=""
+                  />
+                </div>
               </div>
             </div>
           ))}
@@ -313,6 +368,8 @@ function CampaignCreate({ onBack, onDone }) {
           <p className="text-xs text-slate-400 mt-1">The AI will use this context to write a natural, professional email for every lead.</p>
         </div>
 
+        <TemplatePicker selected={form.template_id} onSelect={id => setForm(p => ({...p, template_id: id}))} />
+
         <LeadSelector selected={selected} onChange={setSelected} />
 
         <button onClick={generatePreview} disabled={generating} className="btn-primary w-full mt-4">
@@ -321,6 +378,56 @@ function CampaignCreate({ onBack, onDone }) {
       </div>
     </div>
   )
+}
+
+// ── Client-side mirror of backend render_email_html (for live preview only) ─
+function buildLivePreviewHtml(tpl, subject, bodyText) {
+  const paragraphs = (bodyText || '')
+    .split(/\n\n/)
+    .map(p => p.trim())
+    .filter(Boolean)
+    .map(p => `<p style="margin:0 0 16px 0; line-height:1.65;">${escapeHtml(p).replace(/\n/g, '<br>')}</p>`)
+    .join('\n')
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0; padding:0; background-color:${tpl.bg}; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:${tpl.bg}; padding:24px 12px;">
+    <tr><td align="center">
+      <table role="presentation" width="100%" style="max-width:520px;" cellpadding="0" cellspacing="0">
+        <tr>
+          <td style="background-color:${tpl.primary}; border-radius:10px 10px 0 0; padding:18px 24px;">
+            <p style="margin:0; color:#ffffff; font-size:14px; font-weight:700;">Your Company</p>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#ffffff; padding:28px 24px 8px 24px;">
+            <div style="font-size:14px; color:#1f2937;">
+              ${paragraphs || '<p style="color:#9ca3af;">Body preview will appear here…</p>'}
+            </div>
+            <div style="margin-top:24px; padding-top:16px; border-top:1px solid #e5e7eb;">
+              <p style="margin:0; font-size:13px; font-weight:600; color:#1f2937;">Your Name</p>
+              <p style="margin:2px 0 0 0; font-size:12px; color:#6b7280;">Title · Company</p>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td style="background-color:#ffffff; border-radius:0 0 10px 10px; text-align:center; padding:16px 20px; font-size:10px; color:#9ca3af;">
+            You're receiving this because of a prior connection relevant to your business.
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>`
+}
+
+function escapeHtml(str) {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
 }
 
 // ═══════════════════════════════════════════════════════════
