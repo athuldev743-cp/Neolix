@@ -7,6 +7,7 @@ import {
 import toast from 'react-hot-toast'
 import API, { waApi, leadsApi, repliesApi } from '../services/api'
 import { useUnreadReplies } from '../hooks/useUnreadReplies'
+import LeadSelector from '../components/LeadSelector'
 
 const statusBadge = { 
   running: 'badge-blue', 
@@ -144,339 +145,260 @@ function SMSQueueTable({ logs, onRefresh }) {
   )
 }
 
-function CampaignLeadSelector({ selected, onChange }) {
-  const [activePanel, setActivePanel] = useState('search')
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
-  const [searching, setSearching] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [manual, setManual] = useState({ phone: '', name: '', company: '', business_details: '' })
-  const [bulkText, setBulkText] = useState('')
-  const uploadRef = useRef()
-  const scanRef = useRef()
 
-  const addLeadToSelection = (lead) => {
-    const id = lead.id || `manual-${Date.now()}-${Math.random()}`
-    const next = new Map(selected)
-    next.set(id, { ...lead, id })
-    onChange(next)
-  }
-
-  const addIdsToSelection = (ids) => {
-    const next = new Map(selected)
-    ids.forEach(id => {
-      if (!next.has(id)) next.set(id, { id })
-    })
-    onChange(next)
-  }
-
-  const search = async () => {
-    if (!query.trim()) return
-    setSearching(true)
-    try {
-      const { data } = await leadsApi.search(query, 50)
-      const leads = (data.leads || data || []).filter(l => l.phone)
-      setResults(leads)
-      if (!leads.length) toast('No leads with valid mobile number found')
-    } catch {
-      toast.error('Search failed')
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  const toggle = (lead) => {
-    const next = new Map(selected)
-    if (next.has(lead.id)) next.delete(lead.id)
-    else next.set(lead.id, lead)
-    onChange(next)
-  }
-
-  const addManual = async () => {
-    const phone = normalizePhone(manual.phone)
-    if (phone.length < 10) {
-      return toast.error('Enter a valid mobile number')
-    }
-
-    setLoading(true)
-    try {
-      const payload = {
-        phone,
-        contact_name: manual.name,
-        company_name: manual.company,
-        business_details: manual.business_details,
-        source: 'sms_manual',
-        email: `${phone}@neolix-sms.local` 
-      }
-
-      const { data } = await leadsApi.addSingle(payload)
-      
-      if (data.lead_ids?.length) {
-        addIdsToSelection(data.lead_ids)
-      } else {
-        addLeadToSelection({
-          id: data.id || data.lead_id || `manual-${Date.now()}`,
-          phone: phone,
-          contact_name: manual.name || 'Direct Input',
-          company_name: manual.company || '',
-          business_details: manual.business_details || ''
-        })
-      }
-
-      toast.success('SMS recipient contact synced successfully!')
-      setManual({ phone: '', name: '', company: '', business_details: '' })
-    } catch (err) {
-      addLeadToSelection({ 
-        id: `manual-${Date.now()}`,
-        phone, 
-        contact_name: manual.name || 'Direct Input', 
-        company_name: manual.company || '', 
-        business_details: manual.business_details || '' 
-      })
-      toast.success('SMS contact added locally')
-      setManual({ phone: '', name: '', company: '', business_details: '' })
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const addBulk = async () => {
-    if (!bulkText.trim()) return toast.error('Paste contacts first')
-    setLoading(true)
-    try {
-      const { data } = await leadsApi.addBulk(bulkText)
-      if (data.lead_ids?.length) {
-        addIdsToSelection(data.lead_ids)
-        toast.success(`${data.lead_ids.length} contacts appended`)
-      } else {
-        toast.success('Bulk contacts processed')
-      }
-      setBulkText('')
-    } catch {
-      const rows = bulkText.split('\n').map(x => x.trim()).filter(Boolean)
-      const next = new Map(selected)
-      rows.forEach((row, i) => {
-        const parts = row.split(/[|,;\t]/).map(s => s.trim()).filter(Boolean)
-        const phonePart = parts.find(p => /^\+?\d[\d\s-]{7,}$/.test(p))
-        if (!phonePart) return
-        const phone = normalizePhone(phonePart)
-        next.set(`bulk-${Date.now()}-${i}`, {
-          id: `bulk-${Date.now()}-${i}`,
-          phone,
-          contact_name: parts[1] || '',
-          company_name: parts[2] || '',
-          business_details: parts.slice(3).join(' '),
-        })
-      })
-      onChange(next)
-      toast.success('Bulk contacts appended locally')
-      setBulkText('')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleUpload = async (file) => {
-    if (!file) return
-    setLoading(true)
-    try {
-      const { data } = await leadsApi.uploadFile(file)
-      if (data.lead_ids?.length) addIdsToSelection(data.lead_ids)
-      toast.success('Contacts successfully compiled')
-    } catch {
-      toast.error('Upload parser crash')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleScan = async (file) => {
-    if (!file) return
-    setLoading(true)
-    const reader = new FileReader()
-    reader.onload = async () => {
-      try {
-        const { data } = await leadsApi.scanCard(reader.result.split(',')[1])
-        if (data.phone || data.extracted?.phone) {
-          const extracted = data.extracted || data
-          addLeadToSelection({
-            phone: normalizePhone(extracted.phone),
-            contact_name: extracted.contact_name || '',
-            company_name: extracted.company_name || '',
-            business_details: extracted.business_details || extracted.business_type || '',
-          })
-          toast.success('Card processed')
-        }
-      } catch {
-        toast.error('AI OCR engine timeout')
-      } finally {
-        setLoading(false)
-      }
-    }
-    reader.readAsDataURL(file)
-  }
-
-  const PANELS = [
-    { id: 'search', label: 'Search DB', icon: <Search size={12} /> },
-    { id: 'single', label: 'Single', icon: <Smartphone size={12} /> },
-    { id: 'bulk', label: 'Bulk Paste', icon: <ClipboardList size={12} /> },
-    { id: 'upload', label: 'Upload', icon: <Upload size={12} /> },
-    { id: 'scan', label: 'Scan Card', icon: <Smartphone size={12} /> },
-  ]
-
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
-        {PANELS.map(p => (
-          <button key={p.id} type="button" onClick={() => setActivePanel(p.id)} className={`flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg text-xs font-medium transition-all ${activePanel === p.id ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
-            {p.icon}{p.label}
-          </button>
-        ))}
-      </div>
-
-      {activePanel === 'search' && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <div className="flex-1 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 focus-within:border-slate-900 transition-all">
-              <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} placeholder="Search database leads..." className="flex-1 bg-transparent text-sm outline-none" />
-            </div>
-            <button type="button" onClick={search} className="p-2 border border-slate-200 rounded-xl bg-white hover:bg-slate-50">
-              {searching ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
-            </button>
-          </div>
-          {results.length > 0 && (
-            <div className="max-h-48 overflow-y-auto space-y-1">
-              {results.map(l => (
-                <div key={l.id} onClick={() => toggle(l)} className={`flex items-center justify-between p-2 rounded-xl border text-xs cursor-pointer ${selected.has(l.id) ? 'bg-blue-50 border-blue-300' : 'bg-white'}`}>
-                  <div><p className="font-bold">{l.contact_name || l.company_name || 'Unknown'}</p><p className="text-slate-400">+{l.phone}</p></div>
-                  {selected.has(l.id) && <Check size={12} className="text-blue-600" />}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {activePanel === 'single' && (
-        <div className="space-y-2">
-          <input className="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-xs" placeholder="Mobile Number *" value={manual.phone} onChange={e => setManual(p => ({ ...p, phone: e.target.value }))} />
-          <div className="grid grid-cols-2 gap-2">
-            <input className="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-xs" placeholder="Name" value={manual.name} onChange={e => setManual(p => ({ ...p, name: e.target.value }))} />
-            <input className="w-full px-3 py-1.5 border border-slate-200 rounded-xl text-xs" placeholder="Company" value={manual.company} onChange={e => setManual(p => ({ ...p, company: e.target.value }))} />
-          </div>
-          <textarea className="w-full p-3 border border-slate-200 rounded-xl text-xs h-16 resize-none" placeholder="AI Custom Personalization Parameters..." value={manual.business_details} onChange={e => setManual(p => ({ ...p, business_details: e.target.value }))} />
-          <button type="button" onClick={addManual} className="w-full bg-slate-900 text-white rounded-xl py-1.5 font-bold text-xs">Append Recipient Node</button>
-        </div>
-      )}
-
-      {activePanel === 'bulk' && (
-        <div className="space-y-2">
-          <textarea className="w-full p-3 border border-slate-200 rounded-xl font-mono text-xs h-24 resize-none" placeholder="9876543210 | Athul Dev | OmniAgent | SaaS Platform Engine" value={bulkText} onChange={e => setBulkText(e.target.value)} />
-          <button type="button" onClick={addBulk} className="w-full bg-slate-900 text-white rounded-xl py-1.5 font-bold text-xs">Ingest Bulk Dataset Matrix</button>
-        </div>
-      )}
-
-      {activePanel === 'upload' && (
-        <button type="button" onClick={() => uploadRef.current?.click()} className="w-full h-20 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs">
-          <Upload size={16} className="mb-1" /> Import CSV/Excel Architecture
-          <input ref={uploadRef} type="file" accept=".csv,.xlsx" className="hidden" onChange={e => e.target.files[0] && handleUpload(e.target.files[0])} />
-        </button>
-      )}
-
-      {activePanel === 'scan' && (
-        <button type="button" onClick={() => scanRef.current?.click()} className="w-full h-20 border-2 border-dashed rounded-xl flex flex-col items-center justify-center text-slate-400 text-xs">
-          <Smartphone size={16} className="mb-1" /> Trigger Card Vision Scanner Module
-          <input ref={scanRef} type="file" accept="image/*" className="hidden" onChange={e => e.target.files[0] && handleScan(e.target.files[0])} />
-        </button>
-      )}
-
-      <div className="flex items-center justify-between pt-2 border-t text-xs">
-        <span><strong>{selected.size}</strong> recipients targeted</span>
-        {selected.size > 0 && <button type="button" onClick={() => onChange(new Map())} className="text-red-500">Clear</button>}
-      </div>
-    </div>
-  )
-}
-
-// ── UPGRADED COMPONENT: INTEGRATED ASYNCHRONOUS BLUEPRINT SCHEDULER ───────────
+// ── UPGRADED COMPONENT: Auto-gen Template + Batch Preview/Launch ─────────────
 function SMSCampaignCreate({ onBack, onDone }) {
-  const [form, setForm] = useState({ campaign_name: '', template: '', daily_limit: 150 })
+  const [form, setForm] = useState({ campaign_name: '', campaign_info: '', template: '', daily_limit: 150 })
   const [selectedLeads, setSelectedLeads] = useState(new Map())
-  const [previews, setPreviews] = useState({}) // Stores {lead_id: message}
-  const [activeLeadIndex, setActiveLeadIndex] = useState(0)
-  const [loading, setLoading] = useState(false)
+  const [autoGenLoading, setAutoGenLoading] = useState(false)
 
-  const leadArray = Array.from(selectedLeads.values())
+  const [drafts, setDrafts] = useState(null) // null = setup screen
+  const [draftIdx, setDraftIdx] = useState(0)
+  const [generatingPreview, setGeneratingPreview] = useState(false)
+  const [launching, setLaunching] = useState(false)
 
-  // Generate previews whenever template or leads change
-  useEffect(() => {
-    const newPreviews = {}
-    leadArray.forEach(lead => {
-      // Basic AI-style personalization logic
-      newPreviews[lead.id] = form.template
-        .replace('{lead_name}', lead.contact_name || 'there')
-        .replace('{lead_company}', lead.company_name || 'your company')
-        .replace('{details}', lead.business_details || '')
-    })
-    setPreviews(newPreviews)
-  }, [form.template, selectedLeads])
+  const debounceRef = useRef(null)
 
-  const handleDeploy = async () => {
-    if (!form.campaign_name || selectedLeads.size === 0) return toast.error('Check fields')
-    
-    setLoading(true)
+  // ── Auto-generate SMS template on campaign_name / campaign_info change ──
+  const autoGenerate = async () => {
+    if (!form.campaign_name.trim() && !form.campaign_info.trim()) return
+    setAutoGenLoading(true)
     try {
-      // Direct deployment without individual review per-item
-      await API.post('/sms/campaign/deploy', {
+      const { data } = await API.post('/sms/template/generate', {
         campaign_name: form.campaign_name,
-        messages: leadArray.map(l => ({
-          lead_id: l.id,
-          phone: l.phone,
-          body: previews[l.id]
+        campaign_info: form.campaign_info,
+      })
+      setForm(p => ({ ...p, template: data.template || p.template }))
+    } catch {
+      // silent fail
+    } finally {
+      setAutoGenLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => { autoGenerate() }, 900)
+    return () => clearTimeout(debounceRef.current)
+  }, [form.campaign_name, form.campaign_info]) // eslint-disable-line
+
+  // ── Generate Preview (batch AI drafts) ──────────────────────────────────
+  const generatePreview = async () => {
+    if (!form.campaign_name.trim()) return toast.error('Enter campaign name')
+    if (selectedLeads.size === 0) return toast.error('Select at least one lead')
+    if (!form.template.trim()) return toast.error('Add a message template')
+
+    setGeneratingPreview(true)
+    try {
+      const leadIds = Array.from(selectedLeads.keys()).map(id => parseInt(id, 10) || id)
+      const { data } = await API.post('/sms/preview-batch', {
+        campaign_info: form.campaign_info,
+        lead_ids: leadIds,
+        template: form.template,
+        personalise: true,
+      })
+      setDrafts(data.drafts || [])
+      setDraftIdx(0)
+      toast.success(`${data.drafts?.length || 0} drafts ready — review below`)
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Draft generation failed')
+    } finally {
+      setGeneratingPreview(false)
+    }
+  }
+
+  const updateDraftMessage = (value) => {
+    setDrafts(prev => prev.map((d, i) => i === draftIdx ? { ...d, message: value } : d))
+  }
+
+  const removeDraft = () => {
+    setDrafts(prev => {
+      const next = prev.filter((_, i) => i !== draftIdx)
+      if (draftIdx >= next.length) setDraftIdx(Math.max(0, next.length - 1))
+      return next
+    })
+  }
+
+  // ── Launch ────────────────────────────────────────────────────────────
+  const launch = async () => {
+    if (!drafts || drafts.length === 0) return toast.error('No drafts to send')
+    setLaunching(true)
+    try {
+      await API.post('/sms/launch', {
+        campaign_name: form.campaign_name,
+        campaign_info: form.campaign_info,
+        drafts: drafts.map(d => ({
+          lead_id: d.lead_id,
+          phone: d.phone,
+          name: d.name,
+          company: d.company,
+          business_details: d.business_details,
+          message: d.message,
         }))
       })
-      toast.success('Strategy deployed! Messages are hitting the hardware queue.')
-      onDone()
-    } catch {
-      toast.error('Deployment failed')
+      toast.success('Campaign launched — messages queued for the Android gateway!')
+      setTimeout(onDone, 500)
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Launch failed')
     } finally {
-      setLoading(false)
+      setLaunching(false)
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // REVIEW SCREEN
+  // ─────────────────────────────────────────────────────────────────────
+  if (drafts) {
+    const d = drafts[draftIdx]
+    const total = drafts.length
+
+    if (total === 0) {
+      return (
+        <div className="space-y-4">
+          <button onClick={() => setDrafts(null)} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back to setup</button>
+          <div className="card flex flex-col items-center justify-center py-20 text-slate-400">
+            <p className="text-sm">No drafts left. Go back and regenerate.</p>
+          </div>
+        </div>
+      )
+    }
+
+    const charCount = d.message?.length || 0
+    const segments = Math.ceil(charCount / 160) || 1
+
+    return (
+      <div className="space-y-4 max-w-2xl mx-auto">
+        <button onClick={() => setDrafts(null)} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back to setup</button>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Review Drafts</h2>
+            <p className="text-sm text-slate-400 mt-0.5">{total} message{total !== 1 ? 's' : ''} ready · Edit, then launch to send</p>
+          </div>
+          <button onClick={launch} disabled={launching} className="px-6 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
+            {launching ? <Loader2 size={14} className="animate-spin" /> : <Smartphone size={14} />}
+            {launching ? 'Launching…' : 'Launch'}
+          </button>
+        </div>
+
+        {/* Lead navigator */}
+        <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
+          <button disabled={draftIdx === 0} onClick={() => setDraftIdx(i => i - 1)}
+            className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center disabled:opacity-30 hover:bg-slate-100 transition-colors">
+            <ChevronLeft size={15} />
+          </button>
+          <div className="text-center">
+            <p className="text-sm font-bold text-slate-900">{d.company || d.name || 'Unknown'}</p>
+            <p className="text-xs text-slate-400">+{d.phone} · {draftIdx + 1} of {total}</p>
+          </div>
+          <button disabled={draftIdx === total - 1} onClick={() => setDraftIdx(i => i + 1)}
+            className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center disabled:opacity-30 hover:bg-slate-100 transition-colors">
+            <ChevronRight size={15} />
+          </button>
+        </div>
+
+        <div className="flex justify-end">
+          <button onClick={removeDraft} className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1 font-bold">
+            <X size={13} /> Remove this lead
+          </button>
+        </div>
+
+        {/* Editable message + SMS-style preview */}
+        <div className="card p-5 space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="field-label mb-0">Message</label>
+            <span className="text-[10px] text-slate-400 font-bold">{charCount} chars · {segments} SMS unit{segments !== 1 ? 's' : ''}</span>
+          </div>
+          <textarea
+            className="textarea h-32 text-sm"
+            value={d.message}
+            onChange={e => updateDraftMessage(e.target.value)}
+          />
+
+          {/* SMS bubble preview */}
+          <div>
+            <label className="field-label">Preview</label>
+            <div className="rounded-2xl border border-slate-200 bg-slate-100 p-4">
+              <div className="bg-blue-500 text-white rounded-2xl rounded-tr-none px-3 py-2 max-w-[85%] ml-auto shadow-sm">
+                <p className="text-sm whitespace-pre-wrap leading-relaxed">{d.message || '—'}</p>
+              </div>
+              <p className="text-[10px] text-slate-400 text-right mt-1">12:00 PM</p>
+            </div>
+          </div>
+        </div>
+
+        <button onClick={launch} disabled={launching} className="w-full px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-40">
+          {launching ? <Loader2 size={15} className="animate-spin" /> : <Smartphone size={15} />}
+          {launching ? 'Launching…' : `Launch to ${total} Lead${total !== 1 ? 's' : ''}`}
+        </button>
+      </div>
+    )
+  }
+
+  // ─────────────────────────────────────────────────────────────────────
+  // SETUP SCREEN
+  // ─────────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-3 gap-6">
         {/* Left: Input */}
         <div className="col-span-1 space-y-4">
-          <input className="input w-full" placeholder="Campaign Name" value={form.campaign_name} onChange={e => setForm({...form, campaign_name: e.target.value})} />
-          <textarea className="textarea w-full h-40" placeholder="Hi {lead_name}, regarding {lead_company}..." value={form.template} onChange={e => setForm({...form, template: e.target.value})} />
-          <CampaignLeadSelector selected={selectedLeads} onChange={setSelectedLeads} />
+          <div>
+            <label className="field-label">Campaign Name</label>
+            <input className="input w-full" placeholder="e.g. Tech Leads Q1" value={form.campaign_name} onChange={e => setForm({...form, campaign_name: e.target.value})} />
+          </div>
+
+          <div>
+            <div className="flex items-center gap-1 mb-1">
+              <label className="field-label mb-0">Campaign Info / Event Context</label>
+            </div>
+            <input className="input w-full" placeholder="e.g., Medical Physiotherapy Function, Kochi"
+              value={form.campaign_info} onChange={e => setForm({...form, campaign_info: e.target.value})} />
+            <p className="text-[10px] text-slate-400 mt-1">Used as {'{campaign_info}'} in your template.</p>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="field-label mb-0">SMS Template</label>
+              {autoGenLoading && (
+                <span className="text-xs font-bold text-blue-600 flex items-center gap-1">
+                  <Loader2 size={11} className="animate-spin" /> Auto-generating…
+                </span>
+              )}
+            </div>
+            <textarea className="textarea w-full h-40" placeholder="Hi {lead_name}, regarding {lead_company}..." value={form.template} onChange={e => setForm({...form, template: e.target.value})} />
+            <p className="text-[10px] text-slate-400 mt-1">Auto-fills as you type campaign name/context. Edit freely.</p>
+          </div>
+
+          <LeadSelector selected={selectedLeads} onChange={setSelectedLeads} requiredChannels="sms" />
         </div>
 
-        {/* Right: Preview Taps */}
+        {/* Right: Summary + Generate Preview */}
         <div className="col-span-2 card p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold">Lead Previews ({selectedLeads.size})</h3>
-            <div className="flex gap-2">
-              <button onClick={() => setActiveLeadIndex(Math.max(0, activeLeadIndex - 1))} className="btn-icon"><ChevronLeft size={16}/></button>
-              <span className="text-xs font-bold pt-2">{activeLeadIndex + 1} / {leadArray.length || 1}</span>
-              <button onClick={() => setActiveLeadIndex(Math.min(leadArray.length - 1, activeLeadIndex + 1))} className="btn-icon"><ChevronRight size={16}/></button>
-            </div>
+          <div className="flex items-center gap-2 text-slate-800 font-bold text-sm mb-4">
+            <Zap size={15} className="text-blue-500" /> Campaign Summary
           </div>
-          
-          <div className="bg-slate-950 text-white p-6 rounded-2xl min-h-[200px] font-mono text-sm shadow-inner">
-            {leadArray.length > 0 ? previews[leadArray[activeLeadIndex].id] : "Select leads to see previews..."}
+          <div className="bg-slate-50 p-4 border rounded-xl space-y-2 text-sm text-slate-600 font-medium mb-6">
+            <p>🎯 Leads selected: <strong>{selectedLeads.size}</strong></p>
+            <p>📨 Channel: <strong>SMS (text-only)</strong></p>
+            <p>📝 Template length: <strong>{form.template.length} chars</strong></p>
           </div>
 
-          <button onClick={handleDeploy} disabled={loading || leadArray.length === 0} className="w-full mt-6 btn-primary py-3">
-            {loading ? <Loader2 className="animate-spin"/> : "Deploy Matrix Strategy"}
+          <div className="bg-slate-950 text-white p-6 rounded-2xl min-h-[160px] font-mono text-sm shadow-inner mb-6 whitespace-pre-wrap">
+            {form.template || "Your SMS template preview will appear here..."}
+          </div>
+
+          <button onClick={generatePreview} disabled={generatingPreview || selectedLeads.size === 0} className="w-full btn-primary py-3 flex items-center justify-center gap-2">
+            {generatingPreview ? <Loader2 className="animate-spin" size={16} /> : <Eye size={16} />}
+            {generatingPreview ? 'Generating…' : 'Generate Preview'}
           </button>
         </div>
       </div>
     </div>
   )
 }
+
+
 
 function MainSMSDashboard({ onStartCampaign, metrics, logs, refreshDashboard }) {
   const [newNodeId, setNewNodeId] = useState('')
