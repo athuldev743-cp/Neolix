@@ -422,11 +422,14 @@ export default function LeadSelector({ selected, onChange, requiredChannels = 'e
               <div key={lead.id} onClick={() => toggle(lead)}
                 className={`flex items-center justify-between p-2 rounded-lg border text-xs cursor-pointer transition-all ${selected.has(lead.id) ? 'bg-white border-slate-400 shadow-2xs' : 'bg-transparent border-transparent hover:bg-slate-100'}`}>
                 <div>
-                  <p className="font-bold text-slate-800">{lead.company_name || lead.contact_name || 'Anonymous Contact'}</p>
-                  <p className="text-slate-400 text-[11px]">
-                    {lead.email || 'No Email'} · {lead.phone ? `+${lead.phone}` : 'No Phone'}
-                  </p>
-                </div>
+  <p className="font-bold text-slate-800">{lead.company_name || lead.contact_name || 'Anonymous Contact'}</p>
+  <p className="text-slate-400 text-[11px]">
+    {isPhoneRequired
+      ? <>{lead.phone ? `+${lead.phone}` : 'No Phone'}{lead.email ? ` · ${lead.email}` : ''}</>
+      : <>{lead.email || 'No Email'} · {lead.phone ? `+${lead.phone}` : 'No Phone'}</>
+    }
+  </p>
+</div>
                 {selected.has(lead.id) && <Check size={14} className="text-slate-900" strokeWidth={3} />}
               </div>
             ))}
