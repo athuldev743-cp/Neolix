@@ -469,80 +469,91 @@ function CampaignCreate({ onBack, onDone }) {
   })
 
   // ── Generate Preview (batch, for focused type) ──────────────────────────
-  const generatePreview = async () => {
-    if (!form.campaign_name.trim()) return toast.error('Enter campaign name')
-    if (selected.size === 0) return toast.error('Select at least one lead')
-    if (!messages[focusedType]?.trim()) return toast.error(`Add a template for ${focusedType.toUpperCase()}`)
-
-    setGeneratingPreview(true)
-    try {
-      const { data } = await waApi.previewBatch({
-        campaign_info: form.campaign_info,
-        lead_ids: leadIds.map(id => parseInt(id, 10) || id),
-        message_type: focusedType,
-        template: messages[focusedType],
-        personalise: form.personalise,
-      })
-      setDrafts(data.drafts || [])
-      setDraftIdx(0)
-      toast.success(`${data.drafts?.length || 0} drafts ready — review below`)
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Draft generation failed')
-    } finally {
-      setGeneratingPreview(false)
-    }
+ const generatePreview = async () => {
+  if (!form.campaign_name.trim()) return toast.error('Enter campaign name')
+  if (selected.size === 0) return toast.error('Select at least one lead')
+ 
+  const enabledList = Array.from(activeTypes)
+  for (const type of enabledList) {
+    if (type !== 'image' && !messages[type]?.trim())
+      return toast.error(`Add a template for ${type.toUpperCase()}`)
   }
-
-  const updateDraftMessage = (value) => {
-    setDrafts(prev => prev.map((d, i) => i === draftIdx ? { ...d, message: value } : d))
-  }
-
-  const removeDraft = () => {
-    setDrafts(prev => {
-      const next = prev.filter((_, i) => i !== draftIdx)
-      if (draftIdx >= next.length) setDraftIdx(Math.max(0, next.length - 1))
-      return next
+ 
+  setGeneratingPreview(true)
+  try {
+    const { data } = await waApi.previewBatch({
+      campaign_info: form.campaign_info,
+      lead_ids: leadIds.map(id => parseInt(id, 10) || id),
+      message_types: enabledList,
+      templates: {
+        hook: messages.hook || '',
+        detailed: messages.detailed || '',
+        image: messages.image || '',
+      },
+      personalise: form.personalise,
     })
+    setDrafts(data.drafts || [])
+    setDraftIdx(0)
+    toast.success(`${data.drafts?.length || 0} drafts ready — review below`)
+  } catch (e) {
+    toast.error(e.response?.data?.detail || 'Draft generation failed')
+  } finally {
+    setGeneratingPreview(false)
   }
+}
+
+  const updateDraftMessage = (msgType, value) => {
+  setDrafts(prev => prev.map((d, i) =>
+    i === draftIdx ? { ...d, messages: { ...d.messages, [msgType]: value } } : d
+  ))
+}
+
+ const removeDraft = () => {
+  setDrafts(prev => {
+    const next = prev.filter((_, i) => i !== draftIdx)
+    if (draftIdx >= next.length) setDraftIdx(Math.max(0, next.length - 1))
+    return next
+  })
+}
 
   // ── Launch ───────────────────────────────────────────────────────────────
   const launch = async () => {
-    if (!drafts || drafts.length === 0) return toast.error('No drafts to send')
-    setLaunching(true)
-    try {
-      const finalPhotos = [
-        ...Array.from(selectedPhotos).map(i => profileMedia.photos[i]).filter(Boolean),
-        ...(extraImageUrl ? [extraImageUrl] : [])
-      ]
-      const finalPdfs = Array.from(selectedPdfs).map(i => profileMedia.pdfs[i]).filter(Boolean)
-      const finalAudio = useProfileAudio ? profileMedia.audio : ''
-
-      await waApi.launch({
-        campaign_name: form.campaign_name,
-        campaign_info: form.campaign_info,
-        daily_limit: parseInt(form.daily_limit, 10) || 50,
-        message_type: focusedType,
-        photos_array: finalPhotos,
-        pdfs_array: finalPdfs,
-        audio_voice_base64: finalAudio,
-        drafts: drafts.map(d => ({
-          lead_id: d.lead_id,
-          phone: d.phone,
-          name: d.name,
-          company: d.company,
-          business_details: d.business_details,
-          message: d.message,
-        }))
-      })
-      toast.success('Campaign launched — sending messages now!')
-      purgeFormCache()
-      setTimeout(onDone, 500)
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Launch failed')
-    } finally {
-      setLaunching(false)
-    }
+  if (!drafts || drafts.length === 0) return toast.error('No drafts to send')
+  setLaunching(true)
+  try {
+    const finalPhotos = [
+      ...Array.from(selectedPhotos).map(i => profileMedia.photos[i]).filter(Boolean),
+      ...(extraImageUrl ? [extraImageUrl] : [])
+    ]
+    const finalPdfs = Array.from(selectedPdfs).map(i => profileMedia.pdfs[i]).filter(Boolean)
+    const finalAudio = useProfileAudio ? profileMedia.audio : ''
+ 
+    await waApi.launch({
+      campaign_name: form.campaign_name,
+      campaign_info: form.campaign_info,
+      daily_limit: parseInt(form.daily_limit, 10) || 50,
+      message_types: Array.from(activeTypes),
+      photos_array: finalPhotos,
+      pdfs_array: finalPdfs,
+      audio_voice_base64: finalAudio,
+      drafts: drafts.map(d => ({
+        lead_id: d.lead_id,
+        phone: d.phone,
+        name: d.name,
+        company: d.company,
+        business_details: d.business_details,
+        messages: d.messages,
+      }))
+    })
+    toast.success('Campaign launched — sending messages now!')
+    purgeFormCache()
+    setTimeout(onDone, 500)
+  } catch (e) {
+    toast.error(e.response?.data?.detail || 'Launch failed')
+  } finally {
+    setLaunching(false)
   }
+}
 
   const activeConfigMeta = MSG_TYPES.find(x => x.id === focusedType)
 
@@ -550,72 +561,85 @@ function CampaignCreate({ onBack, onDone }) {
   // REVIEW / PREVIEW SCREEN
   // ─────────────────────────────────────────────────────────────────────
   if (drafts) {
-    const d = drafts[draftIdx]
-    const total = drafts.length
-
-    if (total === 0) {
-      return (
-        <div className="space-y-4">
-          <button onClick={() => setDrafts(null)} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back to setup</button>
-          <div className="card flex flex-col items-center justify-center py-20 text-slate-400">
-            <p className="text-sm">No drafts left. Go back and regenerate.</p>
-          </div>
-        </div>
-      )
-    }
-
+  const d = drafts[draftIdx]
+  const total = drafts.length
+  const activeTypesList = Array.from(activeTypes)
+ 
+  if (total === 0) {
     return (
-      <div className="space-y-4 max-w-2xl mx-auto">
+      <div className="space-y-4">
         <button onClick={() => setDrafts(null)} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back to setup</button>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">Review Drafts</h2>
-            <p className="text-sm text-slate-400 mt-0.5">{total} message{total !== 1 ? 's' : ''} ready · Edit, then launch to send</p>
-          </div>
-          <button onClick={launch} disabled={launching} className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
-            {launching ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-            {launching ? 'Launching…' : 'Launch'}
-          </button>
+        <div className="card flex flex-col items-center justify-center py-20 text-slate-400">
+          <p className="text-sm">No drafts left. Go back and regenerate.</p>
         </div>
-
-        {/* Lead navigator */}
-        <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
-          <button disabled={draftIdx === 0} onClick={() => setDraftIdx(i => i - 1)}
-            className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center disabled:opacity-30 hover:bg-slate-100 transition-colors">
-            <ChevronLeft size={15} />
-          </button>
-          <div className="text-center">
-            <p className="text-sm font-bold text-slate-900">{d.company || d.name || 'Unknown'}</p>
-            <p className="text-xs text-slate-400">+{d.phone} · {draftIdx + 1} of {total}</p>
-          </div>
-          <button disabled={draftIdx === total - 1} onClick={() => setDraftIdx(i => i + 1)}
-            className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center disabled:opacity-30 hover:bg-slate-100 transition-colors">
-            <ArrowRight size={15} />
-          </button>
+      </div>
+    )
+  }
+ 
+  const TYPE_META = {
+    hook:     { label: 'Hook',     color: 'bg-blue-500' },
+    detailed: { label: 'Detailed', color: 'bg-emerald-500' },
+    image:    { label: 'Image + Caption', color: 'bg-violet-500' },
+  }
+ 
+  return (
+    <div className="space-y-4 max-w-2xl mx-auto">
+      <button onClick={() => setDrafts(null)} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back to setup</button>
+ 
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Review Drafts</h2>
+          <p className="text-sm text-slate-400 mt-0.5">{total} lead{total !== 1 ? 's' : ''} ready · {activeTypesList.length} variant{activeTypesList.length !== 1 ? 's' : ''} each · Edit, then launch</p>
         </div>
-
-        {/* Editable message + WhatsApp-style preview */}
-        <div className="card p-5 space-y-3">
-          <div className="flex items-center justify-between">
-            <label className="field-label mb-0">Message</label>
-            <button onClick={removeDraft} className="text-slate-400 hover:text-red-500">
-              <X size={15} />
-            </button>
-          </div>
-          <textarea
-            className="textarea h-40 text-sm"
-            value={d.message}
-            onChange={e => updateDraftMessage(e.target.value)}
-          />
-
-          {/* WhatsApp bubble preview */}
-          <div>
-            <label className="field-label">Preview</label>
+        <button onClick={launch} disabled={launching} className="px-6 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
+          {launching ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+          {launching ? 'Launching…' : 'Launch'}
+        </button>
+      </div>
+ 
+      {/* Lead navigator */}
+      <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl">
+        <button disabled={draftIdx === 0} onClick={() => setDraftIdx(i => i - 1)}
+          className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center disabled:opacity-30 hover:bg-slate-100 transition-colors">
+          <ChevronLeft size={15} />
+        </button>
+        <div className="text-center">
+          <p className="text-sm font-bold text-slate-900">{d.company || d.name || 'Unknown'}</p>
+          <p className="text-xs text-slate-400">+{d.phone} · {draftIdx + 1} of {total}</p>
+        </div>
+        <button disabled={draftIdx === total - 1} onClick={() => setDraftIdx(i => i + 1)}
+          className="w-8 h-8 rounded-lg border border-slate-200 bg-white flex items-center justify-center disabled:opacity-30 hover:bg-slate-100 transition-colors">
+          <ArrowRight size={15} />
+        </button>
+      </div>
+ 
+      {/* Remove lead */}
+      <div className="flex justify-end">
+        <button onClick={removeDraft} className="text-xs text-red-500 hover:text-red-600 flex items-center gap-1 font-bold">
+          <X size={13} /> Remove this lead
+        </button>
+      </div>
+ 
+      {/* Stacked editable variant cards */}
+      {activeTypesList.map(typeId => {
+        const meta = TYPE_META[typeId] || { label: typeId, color: 'bg-slate-400' }
+        return (
+          <div key={typeId} className="card p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${meta.color}`} />
+              <label className="field-label mb-0">{meta.label}</label>
+            </div>
+            <textarea
+              className="textarea h-32 text-sm"
+              value={d.messages?.[typeId] || ''}
+              onChange={e => updateDraftMessage(typeId, e.target.value)}
+            />
+ 
+            {/* WhatsApp bubble preview */}
             <div className="rounded-2xl border border-slate-200 bg-[#e5ddd5] p-4">
               <div className="bg-[#dcf8c6] rounded-lg rounded-tr-none px-3 py-2 max-w-[85%] ml-auto shadow-sm">
-                <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{d.message || '—'}</p>
-                {focusedType === 'image' && (
+                <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">{d.messages?.[typeId] || '—'}</p>
+                {typeId === 'image' && (
                   <div className="mt-2 space-y-1.5">
                     {selectedPhotos.size > 0 && (
                       <div className="flex gap-1.5 flex-wrap">
@@ -629,21 +653,28 @@ function CampaignCreate({ onBack, onDone }) {
                         <FileText size={12} /> {selectedPdfs.size} PDF{selectedPdfs.size !== 1 ? 's' : ''} attached
                       </div>
                     )}
+                    {useProfileAudio && profileMedia.audio && (
+                      <div className="flex items-center gap-1.5 text-xs text-slate-600 bg-white/60 rounded-lg px-2 py-1">
+                        <Mic size={12} /> Voice note attached
+                      </div>
+                    )}
                   </div>
                 )}
                 <p className="text-[10px] text-slate-400 text-right mt-1">12:00 PM</p>
               </div>
             </div>
           </div>
-        </div>
-
-        <button onClick={launch} disabled={launching} className="w-full px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-40">
-          {launching ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-          {launching ? 'Launching…' : `Launch to ${total} Lead${total !== 1 ? 's' : ''}`}
-        </button>
-      </div>
-    )
-  }
+        )
+      })}
+ 
+      <button onClick={launch} disabled={launching} className="w-full px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-40">
+        {launching ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+        {launching ? 'Launching…' : `Launch to ${total} Lead${total !== 1 ? 's' : ''}`}
+      </button>
+    </div>
+  )
+}
+    
 
   // ─────────────────────────────────────────────────────────────────────
   // SETUP SCREEN
