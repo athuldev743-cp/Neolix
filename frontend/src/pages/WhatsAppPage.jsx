@@ -850,7 +850,7 @@ function CampaignCreate({ onBack, onDone }) {
 
           <div className="card p-5">
             <label className="field-label mb-2 block">Target Leads</label>
-            <LeadSelector selected={selected} onChange={setSelected} requirePhone={true} />
+            <LeadSelector selected={selected} onChange={setSelected} requiredChannels="whatsapp" />
           </div>
         </div>
 
