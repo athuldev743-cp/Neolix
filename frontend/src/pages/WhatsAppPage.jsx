@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Inbox, RefreshCw, Plus, Loader2, ChevronLeft,
-  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight, Mic, HelpCircle
+  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight, Mic, HelpCircle, Send
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi, repliesApi, api } from '../services/api'
