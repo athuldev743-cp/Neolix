@@ -2,13 +2,13 @@ import { useState, useEffect, useRef } from 'react'
 import {
   Inbox, Loader2, Eye, X, MessageSquare, Sparkles, CheckCheck, Reply,
   FileText, Zap, Search, Upload, ShieldCheck, Check, ChevronRight, 
-  ClipboardList, RefreshCw, Plus, ChevronLeft, Smartphone, Save, Edit3
+  ClipboardList, RefreshCw, Plus, ChevronLeft, Smartphone, Save, Edit3, Image
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import API, { waApi, leadsApi, repliesApi } from '../services/api'
+
 import { useUnreadReplies } from '../hooks/useUnreadReplies'
 import LeadSelector from '../components/LeadSelector'
-
+import API, { waApi, leadsApi, repliesApi, profileApi } from '../services/api'
 const statusBadge = { 
   running: 'badge-blue', 
   completed: 'badge-green', 
@@ -147,10 +147,17 @@ function SMSQueueTable({ logs, onRefresh }) {
 
 
 // ── UPGRADED COMPONENT: Auto-gen Template + Batch Preview/Launch ─────────────
+// ── UPGRADED COMPONENT: Auto-gen Template + Image (MMS) + Batch Preview/Launch
 function SMSCampaignCreate({ onBack, onDone }) {
   const [form, setForm] = useState({ campaign_name: '', campaign_info: '', template: '', daily_limit: 150 })
   const [selectedLeads, setSelectedLeads] = useState(new Map())
   const [autoGenLoading, setAutoGenLoading] = useState(false)
+
+  // ── Image (MMS) state ────────────────────────────────────────────────
+  const [profileMedia, setProfileMedia] = useState({ photos: [] })
+  const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(null)
+  const [extraImageUrl, setExtraImageUrl] = useState(null)
+  const [mediaLoading, setMediaLoading] = useState(false)
 
   const [drafts, setDrafts] = useState(null) // null = setup screen
   const [draftIdx, setDraftIdx] = useState(0)
@@ -158,6 +165,24 @@ function SMSCampaignCreate({ onBack, onDone }) {
   const [launching, setLaunching] = useState(false)
 
   const debounceRef = useRef(null)
+
+  const finalImage = extraImageUrl || (selectedPhotoIdx !== null ? profileMedia.photos[selectedPhotoIdx] : null)
+
+  // ── Load profile photos on mount ────────────────────────────────────
+  useEffect(() => {
+    const load = async () => {
+      setMediaLoading(true)
+      try {
+        const { data } = await profileApi.get()
+        setProfileMedia({ photos: data.product_photos || [] })
+      } catch {
+        // silent - image is optional
+      } finally {
+        setMediaLoading(false)
+      }
+    }
+    load()
+  }, [])
 
   // ── Auto-generate SMS template on campaign_name / campaign_info change ──
   const autoGenerate = async () => {
@@ -224,9 +249,14 @@ function SMSCampaignCreate({ onBack, onDone }) {
     if (!drafts || drafts.length === 0) return toast.error('No drafts to send')
     setLaunching(true)
     try {
+      const imagePayload = finalImage
+        ? (finalImage.includes(',') ? finalImage.split(',')[1] : finalImage)
+        : null
+
       await API.post('/sms/launch', {
         campaign_name: form.campaign_name,
         campaign_info: form.campaign_info,
+        image_base64: imagePayload,
         drafts: drafts.map(d => ({
           lead_id: d.lead_id,
           phone: d.phone,
@@ -236,7 +266,9 @@ function SMSCampaignCreate({ onBack, onDone }) {
           message: d.message,
         }))
       })
-      toast.success('Campaign launched — messages queued for the Android gateway!')
+      toast.success(finalImage
+        ? 'Campaign launched — MMS messages queued for the Android gateway!'
+        : 'Campaign launched — messages queued for the Android gateway!')
       setTimeout(onDone, 500)
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Launch failed')
@@ -264,7 +296,9 @@ function SMSCampaignCreate({ onBack, onDone }) {
     }
 
     const charCount = d.message?.length || 0
-    const segments = Math.ceil(charCount / 160) || 1
+    const limit = finalImage ? 150 : 160
+    const segments = finalImage ? 1 : (Math.ceil(charCount / 160) || 1)
+    const overLimit = finalImage && charCount > limit
 
     return (
       <div className="space-y-4 max-w-2xl mx-auto">
@@ -273,7 +307,9 @@ function SMSCampaignCreate({ onBack, onDone }) {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-slate-900">Review Drafts</h2>
-            <p className="text-sm text-slate-400 mt-0.5">{total} message{total !== 1 ? 's' : ''} ready · Edit, then launch to send</p>
+            <p className="text-sm text-slate-400 mt-0.5">
+              {total} message{total !== 1 ? 's' : ''} ready · {finalImage ? 'MMS with image' : 'SMS text-only'} · Edit, then launch
+            </p>
           </div>
           <button onClick={launch} disabled={launching} className="px-6 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
             {launching ? <Loader2 size={14} className="animate-spin" /> : <Smartphone size={14} />}
@@ -303,11 +339,13 @@ function SMSCampaignCreate({ onBack, onDone }) {
           </button>
         </div>
 
-        {/* Editable message + SMS-style preview */}
+        {/* Editable message + SMS/MMS-style preview */}
         <div className="card p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <label className="field-label mb-0">Message</label>
-            <span className="text-[10px] text-slate-400 font-bold">{charCount} chars · {segments} SMS unit{segments !== 1 ? 's' : ''}</span>
+            <label className="field-label mb-0">{finalImage ? 'Caption' : 'Message'}</label>
+            <span className={`text-[10px] font-bold ${overLimit ? 'text-red-500' : 'text-slate-400'}`}>
+              {charCount} chars {finalImage ? `· ${limit} char limit (MMS caption)` : `· ${segments} SMS unit${segments !== 1 ? 's' : ''}`}
+            </span>
           </div>
           <textarea
             className="textarea h-32 text-sm"
@@ -315,11 +353,14 @@ function SMSCampaignCreate({ onBack, onDone }) {
             onChange={e => updateDraftMessage(e.target.value)}
           />
 
-          {/* SMS bubble preview */}
+          {/* SMS/MMS bubble preview */}
           <div>
             <label className="field-label">Preview</label>
             <div className="rounded-2xl border border-slate-200 bg-slate-100 p-4">
-              <div className="bg-blue-500 text-white rounded-2xl rounded-tr-none px-3 py-2 max-w-[85%] ml-auto shadow-sm">
+              <div className="bg-blue-500 text-white rounded-2xl rounded-tr-none px-3 py-2 max-w-[85%] ml-auto shadow-sm space-y-2">
+                {finalImage && (
+                  <img src={finalImage} alt="" className="w-full max-w-[200px] rounded-lg border border-white/30" />
+                )}
                 <p className="text-sm whitespace-pre-wrap leading-relaxed">{d.message || '—'}</p>
               </div>
               <p className="text-[10px] text-slate-400 text-right mt-1">12:00 PM</p>
@@ -349,9 +390,7 @@ function SMSCampaignCreate({ onBack, onDone }) {
           </div>
 
           <div>
-            <div className="flex items-center gap-1 mb-1">
-              <label className="field-label mb-0">Campaign Info / Event Context</label>
-            </div>
+            <label className="field-label mb-1">Campaign Info / Event Context</label>
             <input className="input w-full" placeholder="e.g., Medical Physiotherapy Function, Kochi"
               value={form.campaign_info} onChange={e => setForm({...form, campaign_info: e.target.value})} />
             <p className="text-[10px] text-slate-400 mt-1">Used as {'{campaign_info}'} in your template.</p>
@@ -366,8 +405,83 @@ function SMSCampaignCreate({ onBack, onDone }) {
                 </span>
               )}
             </div>
-            <textarea className="textarea w-full h-40" placeholder="Hi {lead_name}, regarding {lead_company}..." value={form.template} onChange={e => setForm({...form, template: e.target.value})} />
+            <textarea className="textarea w-full h-32" placeholder="Hi {lead_name}, regarding {lead_company}..." value={form.template} onChange={e => setForm({...form, template: e.target.value})} />
             <p className="text-[10px] text-slate-400 mt-1">Auto-fills as you type campaign name/context. Edit freely.</p>
+          </div>
+
+          {/* ── Image picker (optional → MMS) ── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="field-label mb-0">Image (optional — sends as MMS)</label>
+              {finalImage && (
+                <button type="button" onClick={() => { setSelectedPhotoIdx(null); setExtraImageUrl(null) }}
+                  className="text-xs text-red-500 font-bold flex items-center gap-1">
+                  <X size={12} /> Remove
+                </button>
+              )}
+            </div>
+
+            {mediaLoading ? (
+              <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
+                <Loader2 size={13} className="animate-spin" /> Loading profile images...
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {profileMedia.photos.length > 0 ? (
+                  <div>
+                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                      From Settings (Product Photos)
+                    </p>
+                    <div className="grid grid-cols-4 gap-2">
+                      {profileMedia.photos.map((src, i) => (
+                        <button key={i} type="button"
+                          onClick={() => { setSelectedPhotoIdx(selectedPhotoIdx === i ? null : i); setExtraImageUrl(null) }}
+                          className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all
+                            ${selectedPhotoIdx === i ? 'border-blue-500' : 'border-slate-200 opacity-60'}`}>
+                          <img src={src} alt="" className="w-full h-full object-cover" />
+                          {selectedPhotoIdx === i && (
+                            <div className="absolute top-1 right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                              <Check size={9} className="text-white" />
+                            </div>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-400">No product photos in Settings yet.</p>
+                )}
+
+                <div>
+                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Or Add Other Image</p>
+                  {extraImageUrl ? (
+                    <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-300">
+                      <img src={extraImageUrl} className="w-full h-full object-cover" alt="" />
+                      <button onClick={() => setExtraImageUrl(null)} className="absolute top-1 right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
+                        <X size={8} className="text-white" />
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" onClick={() => {
+                      const input = document.createElement('input')
+                      input.type = 'file'; input.accept = 'image/*'
+                      input.onchange = e => {
+                        const f = e.target.files[0]
+                        const r = new FileReader()
+                        r.onload = ev => { setExtraImageUrl(ev.target.result); setSelectedPhotoIdx(null) }
+                        r.readAsDataURL(f)
+                      }
+                      input.click()
+                    }} className="w-full h-14 border-2 border-dashed border-slate-300 rounded-xl text-xs text-slate-400 flex items-center justify-center gap-2 hover:border-slate-400 transition-colors">
+                      <Image size={13} /> Upload an image
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            <p className="text-[10px] text-slate-400 mt-1">
+              {finalImage ? 'Sent as MMS with your caption below.' : 'No image — sent as plain SMS.'}
+            </p>
           </div>
 
           <LeadSelector selected={selectedLeads} onChange={setSelectedLeads} requiredChannels="sms" />
@@ -380,9 +494,16 @@ function SMSCampaignCreate({ onBack, onDone }) {
           </div>
           <div className="bg-slate-50 p-4 border rounded-xl space-y-2 text-sm text-slate-600 font-medium mb-6">
             <p>🎯 Leads selected: <strong>{selectedLeads.size}</strong></p>
-            <p>📨 Channel: <strong>SMS (text-only)</strong></p>
+            <p>📨 Channel: <strong>{finalImage ? 'SMS + Image (MMS)' : 'SMS (text-only)'}</strong></p>
             <p>📝 Template length: <strong>{form.template.length} chars</strong></p>
           </div>
+
+          {finalImage && (
+            <div className="mb-4">
+              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Selected Image</p>
+              <img src={finalImage} alt="" className="w-32 h-32 rounded-xl object-cover border border-slate-200" />
+            </div>
+          )}
 
           <div className="bg-slate-950 text-white p-6 rounded-2xl min-h-[160px] font-mono text-sm shadow-inner mb-6 whitespace-pre-wrap">
             {form.template || "Your SMS template preview will appear here..."}
