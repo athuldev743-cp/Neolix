@@ -12,17 +12,14 @@ export const api = axios.create({
 // ... your interceptors ...
 // ── SECURITY: Global Header Injection ────────────────────────────────────────
 api.interceptors.request.use((config) => {
-  // Retrieve the email from localStorage (or your global auth state)
-  const userEmail = localStorage.getItem('user_email');
+  const userEmail = localStorage.getItem('neolix_auth_email')  // ← changed key
   
   if (userEmail) {
-    config.headers['X-User-Email'] = userEmail;
+    config.headers['X-User-Email'] = userEmail
   }
   
-  return config;
-}, (error) => {
-  return Promise.reject(error);
-});
+  return config
+})
 
 // ── Existing Response Interceptor ──────────────────────────────────────────
 api.interceptors.response.use(
