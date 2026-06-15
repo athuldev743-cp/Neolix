@@ -1,5 +1,7 @@
+// src/services/api.js
 import axios from 'axios'
 
+// Point this to your Hugging Face space
 const BASE = import.meta.env.VITE_API_URL || 'https://neolix-neolix-backend.hf.space/api/v1'
 
 export const api = axios.create({
@@ -7,6 +9,7 @@ export const api = axios.create({
   timeout: 120000,
 })
 
+// ... your interceptors ...
 // ── SECURITY: Global Header Injection ────────────────────────────────────────
 api.interceptors.request.use((config) => {
   // Retrieve the email from localStorage (or your global auth state)
