@@ -1,10 +1,29 @@
-const apiBaseUrl = 'https://neolix-neolix-backend.hf.space/api/v1';
+// src/pages/AuthPage.jsx
+import { useSearchParams } from 'react-router-dom';
 
 export default function AuthPage() {
+  const [searchParams] = useSearchParams();
+  const isAuthenticating = searchParams.has('email');
+  const apiBaseUrl = import.meta.env.VITE_API_URL || 'https://neolix-neolix-backend.hf.space/api/v1';
+
   const handleGoogleLogin = () => {
     window.location.href = `${apiBaseUrl}/auth/google/login`;
   };
 
+  // If the URL has ?email=..., App.jsx will automatically detect it 
+  // and trigger the state update. We just show a loading state here.
+  if (isAuthenticating) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          <p className="text-sm">Finalizing authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Standard Login View
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-950">
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-10 w-full max-w-sm shadow-2xl text-center space-y-6">
@@ -12,10 +31,12 @@ export default function AuthPage() {
           <h1 className="text-2xl font-black text-slate-100 tracking-tight">Neolix Hub</h1>
           <p className="text-sm text-slate-400 mt-1">Autonomous Omnichannel Outreach</p>
         </div>
+        
         <button
           onClick={handleGoogleLogin}
           className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-100 text-slate-900 font-bold rounded-xl py-3 px-4 transition-all shadow-sm text-sm"
         >
+          {/* Google Icon SVG */}
           <svg width="18" height="18" viewBox="0 0 48 48">
             <path fill="#FFC107" d="M43.6 20H24v8h11.3C33.6 33.1 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3 0 5.8 1.1 7.9 3l5.7-5.7C34.1 6.5 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20c11 0 19.6-7.9 19.6-20 0-1.3-.1-2.7-.4-4z"/>
             <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.1 18.9 12 24 12c3 0 5.8 1.1 7.9 3l5.7-5.7C34.1 6.5 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/>
@@ -24,6 +45,7 @@ export default function AuthPage() {
           </svg>
           Sign in with Google
         </button>
+        
         <p className="text-[11px] text-slate-500">Your data stays private. No passwords stored.</p>
       </div>
     </div>

@@ -5,31 +5,24 @@ import { repliesApi } from '../services/api';
 export function useUnreadReplies() {
   const [emailUnread, setEmailUnread] = useState(0);
   const [waUnread, setWaUnread] = useState(0);
-  const [smsUnread, setSmsUnread] = useState(0); // Kept available for your hardware pipeline balance
+  const [smsUnread, setSmsUnread] = useState(0);
 
   const checkCounts = async () => {
     try {
-      // 🔄 Query your channel-isolated endpoints concurrently to minimize server strain
+      // The interceptor in api.js now handles the X-User-Email header automatically
       const [emailRes, waRes, smsRes] = await Promise.all([
         repliesApi.inbox('unread', 'email'),
         repliesApi.inbox('unread', 'whatsapp'),
         repliesApi.inbox('unread', 'sms')
       ]);
 
-      // Map unread data stream array lengths straight to state counts
-      if (emailRes && Array.isArray(emailRes.data)) {
-        setEmailUnread(emailRes.data.length);
-      }
+      // Direct access assuming your api returns the data array directly or wrapped
+      setEmailUnread(Array.isArray(emailRes.data) ? emailRes.data.length : 0);
+      setWaUnread(Array.isArray(waRes.data) ? waRes.data.length : 0);
+      setSmsUnread(Array.isArray(smsRes.data) ? smsRes.data.length : 0);
       
-      if (waRes && Array.isArray(waRes.data)) {
-        setWaUnread(waRes.data.length); // ⚡ FIXED: This now tracks true live inbound WhatsApp replies!
-      }
-
-      if (smsRes && Array.isArray(smsRes.data)) {
-        setSmsUnread(smsRes.data.length);
-      }
     } catch (e) {
-      console.error("[Unread Hook Log Warning] Background indicator sync dropped: ", e.message);
+      console.error("[Unread Hook] Sync dropped: ", e.message);
     }
   };
 
