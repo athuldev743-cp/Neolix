@@ -9,6 +9,8 @@ export const api = axios.create({
   timeout: 120000,
 })
 
+export { campaignApi, repliesApi, waApi, smsApi, api as API };
+
 // ... your interceptors ...
 // ── SECURITY: Global Header Injection ────────────────────────────────────────
 api.interceptors.request.use((config) => {
