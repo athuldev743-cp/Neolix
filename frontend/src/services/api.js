@@ -1,15 +1,13 @@
 // src/services/api.js
 import axios from 'axios'
 
-// Point this to your Hugging Face space
 const BASE = import.meta.env.VITE_API_URL || 'https://neolix-neolix-backend.hf.space/api/v1'
 
-export const api = axios.create({
+const api = axios.create({
   baseURL: BASE,
   timeout: 120000,
 })
 
-export { campaignApi, repliesApi, waApi, smsApi, api as API };
 
 // ... your interceptors ...
 // ── SECURITY: Global Header Injection ────────────────────────────────────────
@@ -113,5 +111,16 @@ export const smsApi = {
   getMetrics:  ()     => api.get('/sms/queue-status'),
   getLogs:     ()     => api.get('/sms/logs'),
 }
+
+export { 
+  api as API, 
+  profileApi, 
+  leadsApi, 
+  campaignApi, 
+  omniApi, 
+  repliesApi, 
+  waApi, 
+  smsApi 
+};
 
 export default api
