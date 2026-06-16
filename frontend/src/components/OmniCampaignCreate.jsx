@@ -118,21 +118,29 @@ function EmailPreviewCard({ config, onChange, campaignInfo, leadsArr, profile })
 
   useEffect(() => {
     if (!campaignInfo) return
+    if (leadsArr.length === 0) return // backend requires a real lead_id — nothing to preview against yet
     if (debounceRef.current) clearTimeout(debounceRef.current)
     debounceRef.current = setTimeout(() => { generate() }, 900)
     return () => clearTimeout(debounceRef.current)
-  }, [campaignInfo]) // eslint-disable-line
+  }, [campaignInfo, leadsArr.length]) // eslint-disable-line
 
   const generate = async () => {
+    // /campaigns/preview requires lead_id to resolve to a real lead row
+    // (fetch_leads([lead_id]) 404s otherwise) — use whichever lead is
+    // currently selected for preview, not a dummy id.
+    const targetLead = leadsArr[leadIdx] || leadsArr[0]
+    if (!targetLead?.id && !targetLead?.lead_id) return
     setLoading(true)
     try {
       const { data } = await campaignApi.preview({
-        subject: '', body: '', lead_id: 0,
+        subject: '', body: '', lead_id: targetLead.id ?? targetLead.lead_id,
         personalise: false, generate_template: true,
         context_hint: campaignInfo || 'cold outreach to business leads',
       })
       onChange(prev => ({ ...prev, subject: data.subject || prev.subject, body: data.body || prev.body }))
-    } catch { /* silent */ }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || 'Email preview generation failed')
+    }
     finally { setLoading(false) }
   }
 
@@ -702,4 +710,4 @@ export default function OmniCampaignCreate({ onBack, onDone }) {
       </div>
     </div>
   )
-} 
+}
