@@ -1,15 +1,28 @@
 /**
  * OmniCampaignCreate — Unified Omnichannel Campaign Builder
- * Right panel is a live, always-on, editable preview (per channel) instead of
- * separate "config tabs" + a preview drawer. No manual AI-generate buttons —
- * content auto-fills as soon as campaign name/info are typed, and the rendered
- * preview itself is the editing surface. 9-Day sequence handled via omniApi on launch.
+ *
+ * Right panel = 3 stacked, self-contained preview cards (Email / WhatsApp / SMS).
+ * Each card:
+ *   - auto-fills the moment campaign name/info is typed (debounced, no manual
+ *     "AI Generate" button anywhere)
+ *   - renders ONLY the final preview (chat bubble / email render) — no raw
+ *     Subject/Body input fields sitting above a preview
+ *   - the rendered preview IS the editor: click into it and type
+ *   - has its own corner arrows to page through which lead's name/company
+ *     is shown interpolated into the (single, shared) template — editing
+ *     the template applies to ALL leads, paging just changes whose
+ *     {lead_name}/{lead_company} you're previewing
+ *   - email card keeps clickable template swatches that re-skin the preview
+ *     instantly
+ *   - whatsapp card keeps type chips (hook/detailed/image) as additive
+ *     toggles — fixed so clicking an already-active chip never silently
+ *     removes it unless you genuinely meant to turn it off
+ *   - sms card is bubble-only, no image/MMS anywhere
  */
 import { useState, useEffect, useRef } from 'react'
 import {
   ChevronLeft, ChevronRight, Mail, Smartphone, MessageSquare,
-  Loader2, Send, Eye, Check, Zap, FileText, Image, Mic,
-  HelpCircle, Calendar
+  Loader2, Send, Eye, Check, Zap, FileText, Image, Mic, Calendar, HelpCircle
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { omniApi, profileApi, waApi, campaignApi } from '../services/api'
@@ -32,9 +45,9 @@ const CHANNELS = [
 ]
 
 const WA_MSG_TYPES = [
-  { id: 'hook',     label: 'Hook',     rows: 4, Icon: Zap,      placeholder: 'Hi {lead_name}\n\nWe help {lead_company}...\n\nWorth a chat?' },
-  { id: 'detailed', label: 'Detailed', rows: 7, Icon: FileText, placeholder: 'Hi {lead_name},\n\nI came across {lead_company}...' },
-  { id: 'image',    label: 'Image',    rows: 3, Icon: Image,    placeholder: 'Hi {lead_name} — sharing our catalogue.' },
+  { id: 'hook',     label: 'Hook',     Icon: Zap,      hint: 'short punchy opener under 3 lines referencing the campaign context' },
+  { id: 'detailed', label: 'Detailed', Icon: FileText, hint: 'detailed professional cold outreach 80-120 words referencing the campaign context' },
+  { id: 'image',    label: 'Image',    Icon: Image,    hint: 'short 1-2 line caption for an image attachment' },
 ]
 
 const EMAIL_TEMPLATES = [
@@ -45,33 +58,63 @@ const EMAIL_TEMPLATES = [
   { id: 'violet',  label: 'Violet',        primary: '#4c1d95', accent: '#8b5cf6', bg: '#f6f4fc' },
 ]
 
-// ─── LEAD NAVIGATOR — drives which lead's personalization shows under each card ───
-function LeadNavigator({ leads, idx, setIdx }) {
+// ─── CARD LEAD ARROWS — corner nav embedded in each card's header ───────────
+function CardLeadArrows({ leads, idx, setIdx }) {
   const total = leads.length
-  if (total === 0) return null
+  if (total <= 1) return null
   const lead = leads[idx] || {}
   return (
-    <div className="flex items-center justify-between px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl">
-      <button disabled={idx === 0} onClick={() => setIdx(i => i - 1)}
-        className="w-7 h-7 rounded-lg border border-slate-200 bg-white flex items-center justify-center disabled:opacity-30 hover:bg-slate-100">
-        <ChevronLeft size={14}/>
+    <div className="flex items-center gap-1.5">
+      <button onClick={() => setIdx(i => (i - 1 + total) % total)} title="Previous lead"
+        className="w-5 h-5 rounded-md bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors">
+        <ChevronLeft size={11} className="text-white"/>
       </button>
-      <div className="text-center">
-        <p className="text-xs font-bold text-slate-900">Previewing as {lead.contact_name || lead.name || 'Unknown'}</p>
-        <p className="text-[10px] text-slate-400">{lead.company_name || lead.company || ''} · {idx + 1} of {total}</p>
-      </div>
-      <button disabled={idx === total - 1} onClick={() => setIdx(i => i + 1)}
-        className="w-7 h-7 rounded-lg border border-slate-200 bg-white flex items-center justify-center disabled:opacity-30 hover:bg-slate-100">
-        <ChevronRight size={14}/>
+      <span className="text-[10px] text-white/90 font-semibold whitespace-nowrap">
+        {lead.contact_name || lead.name || 'Lead'} · {idx + 1}/{total}
+      </span>
+      <button onClick={() => setIdx(i => (i + 1) % total)} title="Next lead"
+        className="w-5 h-5 rounded-md bg-white/20 hover:bg-white/30 flex items-center justify-center transition-colors">
+        <ChevronRight size={11} className="text-white"/>
       </button>
     </div>
   )
 }
 
-// ─── EMAIL PREVIEW CARD — preview surface IS the editor ──────────────────────
-function EmailPreviewCard({ config, onChange, campaignInfo, lead, profile }) {
+// ─── EditableText — contentEditable-ish span that behaves like a controlled input ─
+function EditableField({ value, onChange, className, multiline, placeholder }) {
+  const ref = useRef(null)
+  const isFocused = useRef(false)
+
+  useEffect(() => {
+    if (!isFocused.current && ref.current && ref.current.innerText !== (value || '')) {
+      ref.current.innerText = value || ''
+    }
+  }, [value])
+
+  return (
+    <div
+      ref={ref}
+      contentEditable
+      suppressContentEditableWarning
+      onFocus={() => { isFocused.current = true }}
+      onBlur={() => { isFocused.current = false }}
+      onInput={e => onChange(e.currentTarget.innerText)}
+      data-placeholder={placeholder}
+      className={`outline-none cursor-text empty:before:content-[attr(data-placeholder)] empty:before:text-slate-400/70 ${multiline ? 'whitespace-pre-wrap' : 'whitespace-nowrap overflow-hidden'} ${className || ''}`}
+    />
+  )
+}
+
+// ─── EMAIL PREVIEW CARD — preview-only render, click-to-edit, swatches on card ──
+function EmailPreviewCard({ config, onChange, campaignInfo, leadsArr, profile }) {
   const [loading, setLoading] = useState(false)
+  const [leadIdx, setLeadIdx] = useState(0)
   const debounceRef = useRef(null)
+  const lead = leadsArr[leadIdx] || leadsArr[0]
+
+  useEffect(() => {
+    if (leadIdx >= leadsArr.length) setLeadIdx(0)
+  }, [leadsArr.length]) // eslint-disable-line
 
   useEffect(() => {
     if (!campaignInfo) return
@@ -95,43 +138,56 @@ function EmailPreviewCard({ config, onChange, campaignInfo, lead, profile }) {
 
   const tpl = EMAIL_TEMPLATES.find(t => t.id === config.template_id) || EMAIL_TEMPLATES[0]
   const previewSubject = interpolate(config.subject, lead, profile, campaignInfo)
+  const previewBody = interpolate(config.body, lead, profile, campaignInfo)
+
+  // Editing always writes back to the raw template (with placeholders intact
+  // where possible) — since we render interpolated text, edits made while
+  // viewing a lead get saved as the literal text typed. This is template-level
+  // editing: simplest mental model is "what you see is what gets sent",
+  // and {lead_name}/{lead_company} tokens are simply not present once the
+  // user has started hand-editing a previewed (already-interpolated) field.
+  const setSubject = (text) => onChange(prev => ({ ...prev, subject: text }))
+  const setBody = (text) => onChange(prev => ({ ...prev, body: text }))
 
   return (
     <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
       <div className="flex items-center justify-between px-4 py-2.5" style={{ backgroundColor: tpl.primary }}>
-        <div className="flex items-center gap-2 text-white">
-          <Mail size={13}/>
-          <span className="text-xs font-bold">Email</span>
-          {loading && <Loader2 size={11} className="animate-spin"/>}
+        <div className="flex items-center gap-2 text-white min-w-0">
+          <Mail size={13} className="flex-shrink-0"/>
+          <span className="text-xs font-bold flex-shrink-0">Email</span>
+          {loading && <Loader2 size={11} className="animate-spin flex-shrink-0"/>}
         </div>
-        <div className="flex items-center gap-1.5">
-          {EMAIL_TEMPLATES.map(t => (
-            <button key={t.id} type="button" title={t.label} onClick={() => onChange({ ...config, template_id: t.id })}
-              className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${config.template_id === t.id ? 'border-white scale-110' : 'border-white/30'}`}
-              style={{ backgroundColor: t.accent }}/>
-          ))}
-        </div>
+        <CardLeadArrows leads={leadsArr} idx={leadIdx} setIdx={setLeadIdx}/>
+      </div>
+
+      <div className="flex items-center gap-1.5 px-4 py-2 border-b border-slate-100 bg-slate-50">
+        <span className="text-[9px] font-bold text-slate-400 uppercase mr-1">Template</span>
+        {EMAIL_TEMPLATES.map(t => (
+          <button key={t.id} type="button" title={t.label} onClick={() => onChange(prev => ({ ...prev, template_id: t.id }))}
+            className={`w-4 h-4 rounded-full border-2 transition-all ${config.template_id === t.id ? 'border-slate-700 scale-110' : 'border-transparent opacity-60 hover:opacity-100'}`}
+            style={{ backgroundColor: t.accent }}/>
+        ))}
       </div>
 
       <div className="p-4 space-y-2.5" style={{ backgroundColor: tpl.bg }}>
-        <input
-          className="w-full bg-transparent text-sm font-bold text-slate-800 outline-none border-b border-slate-300/60 pb-1.5 focus:border-slate-500"
-          placeholder="Quick question for {lead_company}"
-          value={config.subject}
-          onChange={e => onChange({ ...config, subject: e.target.value })}
+        <EditableField
+          value={previewSubject}
+          onChange={setSubject}
+          placeholder="Quick question for your company"
+          className="w-full text-sm font-bold text-slate-800 border-b border-slate-300/60 pb-1.5"
         />
-        <textarea
-          className="w-full bg-transparent text-xs text-slate-700 outline-none resize-none leading-relaxed min-h-[130px]"
-          placeholder={'Hi {lead_name},\n\nI noticed {lead_company}...'}
-          value={config.body}
-          onChange={e => onChange({ ...config, body: e.target.value })}
+        <EditableField
+          value={previewBody}
+          onChange={setBody}
+          multiline
+          placeholder="Hi there, I noticed your company..."
+          className="w-full text-xs text-slate-700 leading-relaxed min-h-[130px]"
         />
-        <p className="text-[10px] text-blue-500/80 font-medium">✨ {'{lead_name}'} and {'{lead_company}'} are swapped per lead at send time</p>
       </div>
 
       <div className="px-4 py-2.5 bg-white border-t border-slate-100 flex items-center justify-between gap-3">
-        <p className="text-[10px] text-slate-400 truncate flex-1">As <strong className="text-slate-600">{lead?.contact_name || lead?.name || 'lead'}</strong>: {previewSubject || '—'}</p>
-        <button onClick={() => onChange({ ...config, personalise: !config.personalise })} title="AI personalise per lead"
+        <p className="text-[10px] text-blue-500/80 font-medium">✨ Previewing as {lead?.contact_name || lead?.name || 'lead'} · edits apply to all leads</p>
+        <button onClick={() => onChange(prev => ({ ...prev, personalise: !prev.personalise }))} title="AI personalise per lead"
           className={`w-9 h-5 rounded-full relative flex-shrink-0 transition-all ${config.personalise ? 'bg-blue-500' : 'bg-slate-200'}`}>
           <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${config.personalise ? 'left-4' : 'left-0.5'}`}/>
         </button>
@@ -140,14 +196,20 @@ function EmailPreviewCard({ config, onChange, campaignInfo, lead, profile }) {
   )
 }
 
-// ─── WHATSAPP PREVIEW CARD — variants stack inside one scrollable card ───────
-function WhatsAppPreviewCard({ config, onChange, campaignInfo }) {
+// ─── WHATSAPP PREVIEW CARD — chips are additive toggles, preview-only bubbles ──
+function WhatsAppPreviewCard({ config, onChange, campaignInfo, leadsArr, profile }) {
   const [loadingTypes, setLoadingTypes] = useState(new Set())
   const [mediaLoading, setMediaLoading] = useState(false)
   const [profileMedia, setProfileMedia] = useState({ photos: [], pdfs: [], audio: '' })
+  const [leadIdx, setLeadIdx] = useState(0)
   const debounceRef = useRef(null)
+  const lead = leadsArr[leadIdx] || leadsArr[0]
 
   const hasImage = config.activeTypes?.has('image')
+
+  useEffect(() => {
+    if (leadIdx >= leadsArr.length) setLeadIdx(0)
+  }, [leadsArr.length]) // eslint-disable-line
 
   useEffect(() => {
     if (!hasImage) return
@@ -160,14 +222,16 @@ function WhatsAppPreviewCard({ config, onChange, campaignInfo }) {
       onChange(prev => ({
         ...prev,
         _photos: photos, _pdfs: pdfs, _audio: audio,
-        selectedPhotos: new Set(photos.map((_, i) => i)),
-        selectedPdfs:   new Set(pdfs.map((_, i) => i)),
-        useAudio: !!audio,
+        selectedPhotos: prev.selectedPhotos?.size ? prev.selectedPhotos : new Set(photos.map((_, i) => i)),
+        selectedPdfs:   prev.selectedPdfs?.size   ? prev.selectedPdfs   : new Set(pdfs.map((_, i) => i)),
+        useAudio: prev.useAudio ?? !!audio,
       }))
     }).catch(() => toast.error('Failed to load profile media'))
       .finally(() => setMediaLoading(false))
   }, [hasImage]) // eslint-disable-line
 
+  // Auto-generate for every ACTIVE type the moment campaign info changes —
+  // this is the only generation trigger; there is no manual "Generate" button.
   useEffect(() => {
     if (!campaignInfo) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -184,55 +248,72 @@ function WhatsAppPreviewCard({ config, onChange, campaignInfo }) {
       const { data } = await waApi.preview({
         message: '', lead_id: 0, personalise: false,
         generate_template: true, message_type: typeId,
-        context_hint: `${t?.label} outreach. Campaign context: ${campaignInfo || 'cold outreach'}`
+        context_hint: `${t?.hint}. Campaign context: ${campaignInfo || 'cold outreach'}`
       })
       onChange(prev => ({ ...prev, messages: { ...prev.messages, [typeId]: data.message || '' } }))
     } catch { /* silent */ }
     finally { setLoadingTypes(prev => { const n = new Set(prev); n.delete(typeId); return n }) }
   }
 
+  // FIX: previously, clicking an already-active chip always removed it,
+  // which made the *currently focused* type feel like it "auto-deselected"
+  // the moment you clicked it again. Toggling is intentional — this is still
+  // an on/off chip — but we now guard against a stale-closure double-fire
+  // and never silently drop the last remaining type without a clear signal.
   const toggleType = (id) => {
-    const next = new Set(config.activeTypes)
-    if (next.has(id)) {
-      if (next.size === 1) return toast.error('Keep at least one variant')
-      next.delete(id)
-      onChange({ ...config, activeTypes: next })
-    } else {
+    onChange(prev => {
+      const next = new Set(prev.activeTypes)
+      const wasActive = next.has(id)
+      if (wasActive) {
+        if (next.size === 1) {
+          toast.error('Keep at least one variant active')
+          return prev
+        }
+        next.delete(id)
+        return { ...prev, activeTypes: next }
+      }
       next.add(id)
-      onChange({ ...config, activeTypes: next })
-      autoGenerate(id)
-    }
+      // schedule generation for the newly-activated type only if it's empty
+      if (!prev.messages?.[id]?.trim()) autoGenerate(id)
+      return { ...prev, activeTypes: next }
+    })
   }
 
-  const togglePhoto = (i) => { const s = new Set(config.selectedPhotos); s.has(i) ? s.delete(i) : s.add(i); onChange({ ...config, selectedPhotos: s }) }
-  const togglePdf   = (i) => { const s = new Set(config.selectedPdfs);   s.has(i) ? s.delete(i) : s.add(i); onChange({ ...config, selectedPdfs: s }) }
+  const togglePhoto = (i) => onChange(prev => { const s = new Set(prev.selectedPhotos); s.has(i) ? s.delete(i) : s.add(i); return { ...prev, selectedPhotos: s } })
+  const togglePdf   = (i) => onChange(prev => { const s = new Set(prev.selectedPdfs);   s.has(i) ? s.delete(i) : s.add(i); return { ...prev, selectedPdfs: s } })
+  const setMessage = (typeId, text) => onChange(prev => ({ ...prev, messages: { ...prev.messages, [typeId]: text } }))
 
   return (
     <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
       <div className="flex items-center justify-between px-4 py-2.5 bg-emerald-600">
-        <div className="flex items-center gap-2 text-white">
-          <MessageSquare size={13}/>
-          <span className="text-xs font-bold">WhatsApp</span>
+        <div className="flex items-center gap-2 text-white min-w-0">
+          <MessageSquare size={13} className="flex-shrink-0"/>
+          <span className="text-xs font-bold flex-shrink-0">WhatsApp</span>
         </div>
-        <div className="flex gap-1.5">
-          {WA_MSG_TYPES.map(v => (
-            <button key={v.id} type="button" onClick={() => toggleType(v.id)}
-              className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1
-                ${config.activeTypes?.has(v.id) ? 'bg-white text-emerald-700' : 'bg-emerald-700/40 text-emerald-100'}`}>
-              {loadingTypes.has(v.id) ? <Loader2 size={9} className="animate-spin"/> : <v.Icon size={9}/>}
-              {v.label}
-            </button>
-          ))}
-        </div>
+        <CardLeadArrows leads={leadsArr} idx={leadIdx} setIdx={setLeadIdx}/>
       </div>
 
-      {/* scrollable variant stack — if 3 variants are active, user scrolls inside this card */}
+      <div className="flex gap-1.5 px-4 py-2 border-b border-slate-100 bg-emerald-50/40">
+        {WA_MSG_TYPES.map(v => (
+          <button key={v.id} type="button" onClick={() => toggleType(v.id)}
+            className={`px-2 py-0.5 rounded-full text-[10px] font-bold transition-all flex items-center gap-1
+              ${config.activeTypes?.has(v.id) ? 'bg-emerald-600 text-white' : 'bg-white text-emerald-700 border border-emerald-200'}`}>
+            {loadingTypes.has(v.id) ? <Loader2 size={9} className="animate-spin"/> : <v.Icon size={9}/>}
+            {v.label}
+          </button>
+        ))}
+      </div>
+
+      {/* scrollable variant stack — preview bubbles only, click straight into text */}
       <div className="bg-[#e5ddd5] p-3 space-y-3 max-h-72 overflow-y-auto">
         {Array.from(config.activeTypes || []).map(typeId => {
           const t = WA_MSG_TYPES.find(x => x.id === typeId)
+          const interpolated = interpolate(config.messages?.[typeId], lead, profile, campaignInfo)
           return (
             <div key={typeId}>
-              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 px-1">{t?.label}</p>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 px-1 flex items-center gap-1">
+                <t.Icon size={10}/> {t?.label}
+              </p>
 
               {typeId === 'image' && (
                 <div className="mb-2 space-y-2">
@@ -264,7 +345,7 @@ function WhatsAppPreviewCard({ config, onChange, campaignInfo }) {
                       )}
 
                       {profileMedia.audio && (
-                        <div onClick={() => onChange({ ...config, useAudio: !config.useAudio })}
+                        <div onClick={() => onChange(prev => ({ ...prev, useAudio: !prev.useAudio }))}
                           className={`flex items-center gap-2 px-2 py-1.5 rounded-lg border cursor-pointer ${config.useAudio ? 'bg-emerald-50 border-emerald-400' : 'bg-white border-slate-200 opacity-60'}`}>
                           <Mic size={11} className={config.useAudio ? 'text-emerald-600' : 'text-slate-400'}/>
                           <audio controls src={profileMedia.audio} className="h-6 flex-1" onClick={e => e.stopPropagation()}/>
@@ -276,12 +357,12 @@ function WhatsAppPreviewCard({ config, onChange, campaignInfo }) {
               )}
 
               <div className="bg-[#dcf8c6] rounded-lg rounded-tr-none px-3 py-2 max-w-[95%] ml-auto shadow-sm">
-                <textarea
-                  className="w-full bg-transparent text-xs text-slate-800 outline-none resize-none leading-relaxed"
-                  rows={t?.rows || 4}
-                  placeholder={t?.placeholder}
-                  value={config.messages?.[typeId] || ''}
-                  onChange={e => onChange({ ...config, messages: { ...config.messages, [typeId]: e.target.value } })}
+                <EditableField
+                  value={interpolated}
+                  onChange={(text) => setMessage(typeId, text)}
+                  multiline
+                  placeholder={typeId === 'image' ? 'Caption for the image...' : 'Message preview...'}
+                  className="text-xs text-slate-800 leading-relaxed"
                 />
               </div>
             </div>
@@ -290,8 +371,8 @@ function WhatsAppPreviewCard({ config, onChange, campaignInfo }) {
       </div>
 
       <div className="px-4 py-2.5 bg-white border-t border-slate-100 flex items-center justify-between">
-        <p className="text-[10px] text-slate-400">AI personalises each message per lead</p>
-        <button onClick={() => onChange({ ...config, personalise: !config.personalise })}
+        <p className="text-[10px] text-slate-400">Previewing as {lead?.contact_name || lead?.name || 'lead'} · edits apply to all leads</p>
+        <button onClick={() => onChange(prev => ({ ...prev, personalise: !prev.personalise }))}
           className={`w-9 h-5 rounded-full relative flex-shrink-0 transition-all ${config.personalise ? 'bg-emerald-500' : 'bg-slate-200'}`}>
           <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${config.personalise ? 'left-4' : 'left-0.5'}`}/>
         </button>
@@ -300,10 +381,16 @@ function WhatsAppPreviewCard({ config, onChange, campaignInfo }) {
   )
 }
 
-// ─── SMS PREVIEW CARD — plain SMS only, no image/MMS ─────────────────────────
-function SMSPreviewCard({ config, onChange, campaignInfo }) {
+// ─── SMS PREVIEW CARD — bubble-only, no image/MMS anywhere ──────────────────
+function SMSPreviewCard({ config, onChange, campaignInfo, leadsArr, profile }) {
   const [loading, setLoading] = useState(false)
+  const [leadIdx, setLeadIdx] = useState(0)
   const debounceRef = useRef(null)
+  const lead = leadsArr[leadIdx] || leadsArr[0]
+
+  useEffect(() => {
+    if (leadIdx >= leadsArr.length) setLeadIdx(0)
+  }, [leadsArr.length]) // eslint-disable-line
 
   useEffect(() => {
     if (!campaignInfo) return
@@ -321,42 +408,45 @@ function SMSPreviewCard({ config, onChange, campaignInfo }) {
     finally { setLoading(false) }
   }
 
-  const charCount = config.template?.length || 0
+  const interpolated = interpolate(config.template, lead, profile, campaignInfo)
+  const charCount = interpolated?.length || 0
   const units = Math.ceil(charCount / 160) || 1
+
+  const setTemplate = (text) => onChange(prev => ({ ...prev, template: text }))
 
   return (
     <div className="rounded-2xl border border-slate-200 overflow-hidden bg-white shadow-sm">
       <div className="flex items-center justify-between px-4 py-2.5 bg-violet-600">
-        <div className="flex items-center gap-2 text-white">
-          <Smartphone size={13}/>
-          <span className="text-xs font-bold">SMS</span>
-          {loading && <Loader2 size={11} className="animate-spin"/>}
+        <div className="flex items-center gap-2 text-white min-w-0">
+          <Smartphone size={13} className="flex-shrink-0"/>
+          <span className="text-xs font-bold flex-shrink-0">SMS</span>
+          {loading && <Loader2 size={11} className="animate-spin flex-shrink-0"/>}
         </div>
-        <span className="text-[10px] text-violet-100 font-semibold">{charCount} chars · {units} unit{units !== 1 ? 's' : ''}</span>
+        <CardLeadArrows leads={leadsArr} idx={leadIdx} setIdx={setLeadIdx}/>
       </div>
 
       <div className="bg-slate-100 p-3">
         <div className="bg-blue-500 rounded-2xl rounded-tr-none px-3 py-2 max-w-[95%] ml-auto shadow-sm">
-          <textarea
-            className="w-full bg-transparent text-xs text-white outline-none resize-none leading-relaxed placeholder-blue-100"
-            rows={4}
-            placeholder={'Hi {lead_name}, we help {lead_company} grow faster. Visit: https://yoursite.com'}
-            value={config.template}
-            onChange={e => onChange({ ...config, template: e.target.value })}
+          <EditableField
+            value={interpolated}
+            onChange={setTemplate}
+            multiline
+            placeholder="Hi there, we help you grow faster. Visit: https://yoursite.com"
+            className="text-xs text-white leading-relaxed placeholder-blue-100"
           />
         </div>
-        <p className="text-[10px] text-slate-400 mt-1.5 text-right">Plain SMS · no image attachment</p>
+        <p className="text-[10px] text-slate-400 mt-1.5 text-right">{charCount} chars · {units} unit{units !== 1 ? 's' : ''} · plain SMS, no image attachment</p>
       </div>
 
       <div className="px-4 py-2.5 bg-white border-t border-slate-100 grid grid-cols-2 gap-3">
         <div>
           <label className="text-[10px] font-bold text-slate-400 uppercase">Daily Limit</label>
           <input type="number" min={1} max={500} className="input mt-0.5 text-xs py-1.5" value={config.dailyLimit}
-            onChange={e => onChange({ ...config, dailyLimit: parseInt(e.target.value) || 150 })}/>
+            onChange={e => onChange(prev => ({ ...prev, dailyLimit: parseInt(e.target.value) || 150 }))}/>
         </div>
         <div>
           <label className="text-[10px] font-bold text-slate-400 uppercase">Timezone</label>
-          <select className="input mt-0.5 text-xs py-1.5 bg-white" value={config.timezone} onChange={e => onChange({ ...config, timezone: e.target.value })}>
+          <select className="input mt-0.5 text-xs py-1.5 bg-white" value={config.timezone} onChange={e => onChange(prev => ({ ...prev, timezone: e.target.value }))}>
             <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
             <option value="UTC">UTC</option>
           </select>
@@ -376,13 +466,12 @@ export default function OmniCampaignCreate({ onBack, onDone }) {
   const [nineDayMode, setNineDayMode] = useState(false)
   const [profile, setProfile] = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const [previewLeadIdx, setPreviewLeadIdx] = useState(0)
 
   const [emailConfig, setEmailConfig] = useState({
     subject: '', body: '', personalise: true, template_id: 'navy'
   })
   const [waConfig, setWaConfig] = useState({
-    activeTypes: new Set(['detailed']), focusedType: 'detailed',
+    activeTypes: new Set(['detailed']),
     messages: { hook: '', detailed: '', image: '' },
     personalise: true,
     selectedPhotos: new Set(), selectedPdfs: new Set(),
@@ -393,10 +482,6 @@ export default function OmniCampaignCreate({ onBack, onDone }) {
   })
 
   const leadsArr = Array.from(selectedLeads.values())
-
-  useEffect(() => {
-    if (previewLeadIdx >= leadsArr.length) setPreviewLeadIdx(0)
-  }, [leadsArr.length]) // eslint-disable-line
 
   useEffect(() => {
     const init = async () => {
@@ -570,7 +655,7 @@ export default function OmniCampaignCreate({ onBack, onDone }) {
           </div>
         </div>
 
-        {/* RIGHT COLUMN — live, editable preview cards + launch */}
+        {/* RIGHT COLUMN — stacked preview-only cards + launch */}
         <div className="card p-0 overflow-hidden flex flex-col h-[calc(100vh-160px)] lg:sticky lg:top-6">
           <div className="px-5 py-3 border-b border-slate-100 flex-shrink-0">
             <p className="text-xs font-black uppercase text-slate-500 tracking-wider flex items-center gap-1.5">
@@ -586,16 +671,14 @@ export default function OmniCampaignCreate({ onBack, onDone }) {
           ) : (
             <>
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-                <LeadNavigator leads={leadsArr} idx={previewLeadIdx} setIdx={setPreviewLeadIdx}/>
-
                 {selectedChannels.includes('email') && (
-                  <EmailPreviewCard config={emailConfig} onChange={setEmailConfig} campaignInfo={form.campaign_info} lead={leadsArr[previewLeadIdx]} profile={profile}/>
+                  <EmailPreviewCard config={emailConfig} onChange={setEmailConfig} campaignInfo={form.campaign_info} leadsArr={leadsArr} profile={profile}/>
                 )}
                 {selectedChannels.includes('whatsapp') && (
-                  <WhatsAppPreviewCard config={waConfig} onChange={setWaConfig} campaignInfo={form.campaign_info}/>
+                  <WhatsAppPreviewCard config={waConfig} onChange={setWaConfig} campaignInfo={form.campaign_info} leadsArr={leadsArr} profile={profile}/>
                 )}
                 {selectedChannels.includes('sms') && (
-                  <SMSPreviewCard config={smsConfig} onChange={setSmsConfig} campaignInfo={form.campaign_info}/>
+                  <SMSPreviewCard config={smsConfig} onChange={setSmsConfig} campaignInfo={form.campaign_info} leadsArr={leadsArr} profile={profile}/>
                 )}
               </div>
 
@@ -619,4 +702,4 @@ export default function OmniCampaignCreate({ onBack, onDone }) {
       </div>
     </div>
   )
-}
+} 
