@@ -8,44 +8,35 @@ const api = axios.create({
   timeout: 120000,
 })
 
-
-// ... your interceptors ...
 // ── SECURITY: Global Header Injection ────────────────────────────────────────
 api.interceptors.request.use((config) => {
-  const userEmail = localStorage.getItem('neolix_auth_email')  // ← changed key
-  
+  const userEmail = localStorage.getItem('neolix_auth_email')
   if (userEmail) {
     config.headers['X-User-Email'] = userEmail
   }
-  
   return config
 })
 
 // ── Existing Response Interceptor ──────────────────────────────────────────
 api.interceptors.response.use(
   res => res,
-  async err => {
-    // ... (Your existing retry logic remains here)
-  }
+  async err => { return Promise.reject(err); }
 )
-// ── Profile (OAuth & Multi-Tenant Adaptations) ────────────────────────────────
-export const profileApi = {
+
+// ── Profile ────────────────────────────────────────────────────────────────
+const profileApi = {
   get:        ()     => api.get('/profile'),
   update:     (data) => api.patch('/profile', data),
   getContext: ()     => api.get('/profile/context'),
-  
-  // ✅ Upgraded: Syncs combined Android hardware gateway node metadata rules cleanly
   updateSmsGateway: (data) => api.put('/profile/sms', data),
 }
 
-// ── Leads ─────────────────────────────────────────────────────────────────────
-export const leadsApi = {
-  // Transmits channel context and dual-validation requirements to leads.py query parser
+// ── Leads ──────────────────────────────────────────────────────────────────
+const leadsApi = {
   search: (q, limit = 50, channelContext = 'email', requiredChannels = 'email') => 
     api.get('/leads/search', { params: { q, limit, channel_context: channelContext, required_channels: requiredChannels } }),
-  
-  addSingle:  (data)          => api.post('/leads/single', data),
-  addBulk:    (raw_text)      => api.post('/leads/bulk', { raw_text }),
+  addSingle:  (data)           => api.post('/leads/single', data),
+  addBulk:    (raw_text)       => api.post('/leads/bulk', { raw_text }),
   uploadFile: (file) => {
     const form = new FormData()
     form.append('file', file)
@@ -58,8 +49,8 @@ export const leadsApi = {
   get:      (id)           => api.get(`/leads/${id}`),
 }
 
-// ── Campaigns ─────────────────────────────────────────────────────────────────
-export const campaignApi = {
+// ── Campaigns ──────────────────────────────────────────────────────────────
+const campaignApi = {
   create:  (data) => api.post('/campaigns/create', data),
   list:    ()     => api.get('/campaigns/list'),
   get:     (id)   => api.get(`/campaigns/${id}`),
@@ -68,14 +59,14 @@ export const campaignApi = {
   launch:  (data) => api.post('/campaigns/launch', data),
 }
 
-// ── Omnichannel Campaigns (NEW Layer) ─────────────────────────────────────────
-export const omniApi = {
+// ── Omnichannel ────────────────────────────────────────────────────────────
+const omniApi = {
   create: (data) => api.post('/omni-campaigns/create', data),
   list:   ()     => api.get('/omni-campaigns/list'),
 }
 
-// ── Replies ───────────────────────────────────────────────────────────────────
-export const repliesApi = {
+// ── Replies ────────────────────────────────────────────────────────────────
+const repliesApi = {
   inbox:  (status, channel) => api.get('/replies/inbox',  { params: { ...(status ? { status } : {}), ...(channel ? { channel } : {}) } }),
   sent:   (cid, channel)    => api.get('/replies/sent',   { params: { ...(cid ? { campaign_id: cid } : {}), ...(channel ? { channel } : {}) } }),
   thread:  (id)             => api.get(`/replies/${id}`),
@@ -83,8 +74,8 @@ export const repliesApi = {
   poll:    ()               => api.post('/replies/poll'),
 }
 
-// ── WhatsApp ──────────────────────────────────────────────────────────────────
-export const waApi = {
+// ── WhatsApp ───────────────────────────────────────────────────────────────
+const waApi = {
   status:         ()      => api.get('/whatsapp/status'),
   logout:         ()      => api.post('/whatsapp/logout'),
   send:           (data)  => api.post('/whatsapp/send', data),
@@ -99,12 +90,12 @@ export const waApi = {
   campaignGet:    (id)    => api.get(`/whatsapp/campaign/${id}`),
   campaignDetail: (id)    => api.get(`/whatsapp/campaign/${id}`),
   preview:        (data)  => api.post('/whatsapp/preview', data),
-   previewBatch: (data) => api.post('/whatsapp/preview-batch', data),
-  launch:       (data) => api.post('/whatsapp/launch', data),
+  previewBatch:   (data)  => api.post('/whatsapp/preview-batch', data),
+  launch:         (data)  => api.post('/whatsapp/launch', data),
 }
 
-// ── Android SIM Gateway ───────────────────────────────────────────────────────
-export const smsApi = {
+// ── Android SIM Gateway ────────────────────────────────────────────────────
+const smsApi = {
   getConfig:   ()     => api.get('/sms/config'),
   saveConfig:  (data) => api.post('/sms/config', data),
   enqueue:     (data) => api.post('/sms/enqueue', data),
@@ -112,6 +103,7 @@ export const smsApi = {
   getLogs:     ()     => api.get('/sms/logs'),
 }
 
+// ✅ FINAL EXPORT: Only one line to export everything
 export { 
   api as API, 
   profileApi, 
@@ -123,4 +115,4 @@ export {
   smsApi 
 };
 
-export default api
+export default api;
