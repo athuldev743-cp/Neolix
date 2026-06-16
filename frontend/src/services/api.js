@@ -105,6 +105,7 @@ const smsApi = {
 
 // ✅ FINAL EXPORT: Only one line to export everything
 export { 
+  api,
   api as API, 
   profileApi, 
   leadsApi, 
