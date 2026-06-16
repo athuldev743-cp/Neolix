@@ -7,6 +7,7 @@ import {
 import { campaignApi, repliesApi, waApi } from '../services/api'
 import { ProfileContext } from '../App'
 import OmniCampaignCreate from '../components/OmniCampaignCreate'
+import { smsApi } from '../services/api'
 
 function StatRow({ label, value, color = 'text-slate-800', loading }) {
   return (
@@ -49,45 +50,45 @@ function ChannelCard({ icon: Icon, title, color, to, loading, stats, connectionE
   )
 }
 
-export default function DashboardPage() {
-  const { profile } = useContext(ProfileContext)
-  const [loading, setLoading]   = useState(true)
-  const [emailStats, setEmail]  = useState(null)
-  const [waStats, setWA]        = useState(null)
-  const [waConnected, setWACon] = useState(false)
-  
-  // ✅ Added Dashboard layout view orchestration states
-  const [dashView, setDashView] = useState('summary') // summary | create_omni
+const fetchDashboardMetrics = async () => {
+  try {
+    const [campRes, inboxRes, sentRes, waRes, waListRes, smsRes] = await Promise.allSettled([
+      campaignApi.list(),
+      repliesApi.inbox('unread'),
+      repliesApi.inbox('responded'),
+      waApi.status(),
+      waApi.campaignList(),
+      API.get('/sms/queue-status'),
+    ])
 
-  const fetchDashboardMetrics = async () => {
-    try {
-      const [campRes, inboxRes, sentRes, waRes, waListRes] = await Promise.allSettled([
-        campaignApi.list(),
-        repliesApi.inbox('unread'),
-        repliesApi.inbox('responded'),
-        waApi.status(),
-        waApi.campaignList(),
-      ])
+    const camps       = campRes.status  === 'fulfilled' ? campRes.value.data  : []
+    const unread      = inboxRes.status === 'fulfilled' ? inboxRes.value.data : []
+    const replied     = sentRes.status  === 'fulfilled' ? sentRes.value.data  : []
+    const totalSent   = camps.reduce((s, c) => s + (c.sent   || 0), 0)
+    const totalFailed = camps.reduce((s, c) => s + (c.failed || 0), 0)
+    const running     = camps.filter(c => c.status === 'running').length
+    setEmail({ totalSent, totalFailed, running, unread: unread.length, replied: replied.length, campaigns: camps.length })
 
-      const camps    = campRes.status    === 'fulfilled' ? campRes.value.data    : []
-      const unread   = inboxRes.status   === 'fulfilled' ? inboxRes.value.data   : []
-      const replied  = sentRes.status    === 'fulfilled' ? sentRes.value.data    : []
-      const totalSent   = camps.reduce((s, c) => s + (c.sent   || 0), 0)
-      const totalFailed = camps.reduce((s, c) => s + (c.failed || 0), 0)
-      const running     = camps.filter(c => c.status === 'running').length
-      setEmail({ totalSent, totalFailed, running, unread: unread.length, replied: replied.length, campaigns: camps.length })
+    const wa     = waRes.status    === 'fulfilled' ? waRes.value.data    : {}
+    const waCamp = waListRes.status === 'fulfilled' ? waListRes.value.data : []
+    const waSent = waCamp.reduce((s, c) => s + (c.sent || 0), 0)
+    setWACon(wa.connected || false)
+    setWA({ connected: wa.connected, campaigns: waCamp.length, sent: waSent })
 
-      const wa     = waRes.status    === 'fulfilled' ? waRes.value.data    : {}
-      const waCamp = waListRes.status === 'fulfilled' ? waListRes.value.data : []
-      const waSent = waCamp.reduce((s, c) => s + (c.sent || 0), 0)
-      setWACon(wa.connected || false)
-      setWA({ connected: wa.connected, campaigns: waCamp.length, sent: waSent })
-    } catch (e) {
-      console.error(e)
-    } finally {
-      setLoading(false)
-    }
+    const sms = smsRes.status === 'fulfilled' ? smsRes.value.data : {}
+    setSmsStats({
+      pending:    sms.pending_count    || 0,
+      processing: sms.processing_count || 0,
+      sentToday:  sms.sent_today       || 0,
+      dailyLimit: sms.daily_limit      || 150,
+    })
+  } catch (e) {
+    console.error(e)
+  } finally {
+    setLoading(false)
   }
+}
+  
 
   useEffect(() => {
     fetchDashboardMetrics()
@@ -132,7 +133,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <ChannelCard
           icon={Mail}
           title="Email"
@@ -173,6 +174,23 @@ export default function DashboardPage() {
             { label: 'Connection',    value: waConnected ? 'Connected' : 'Disconnected', color: waConnected ? 'text-emerald-600' : 'text-red-500' },
           ]}
         />
+        <ChannelCard
+  icon={Smartphone}
+  title="SMS Gateway"
+  color="bg-violet-50 text-violet-700"
+  to="/sms"
+  loading={loading}
+  connectionEl={
+    <span className="badge-gray text-xs flex items-center gap-1">
+      <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse" /> Android
+    </span>
+  }
+  stats={[
+    { label: 'Sent today',    value: smsStats?.sentToday,   color: 'text-emerald-600' },
+    { label: 'Pending queue', value: smsStats?.pending,     color: smsStats?.pending > 0 ? 'text-amber-600' : 'text-slate-800' },
+    { label: 'Daily limit',   value: smsStats?.dailyLimit,  color: 'text-slate-800' },
+  ]}
+/>
       </div>
 
       <div className="mt-6 grid grid-cols-2 gap-4">
@@ -200,4 +218,3 @@ export default function DashboardPage() {
       </div>
     </div>
   )
-}

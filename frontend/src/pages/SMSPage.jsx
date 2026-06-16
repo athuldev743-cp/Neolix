@@ -1,27 +1,22 @@
 import { useState, useEffect, useRef } from 'react'
 import {
-  Inbox, Loader2, Eye, X, MessageSquare, Sparkles, CheckCheck, Reply,
-  FileText, Zap, Search, Upload, ShieldCheck, Check, ChevronRight, 
-  ClipboardList, RefreshCw, Plus, ChevronLeft, Smartphone, Save, Edit3, Image
+  Inbox, Loader2, Eye, X, Zap, Search, ShieldCheck, Check,
+  ChevronRight, RefreshCw, Plus, ChevronLeft, Smartphone,
+  Save, Edit3, Reply, CheckCheck, Sparkles
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 import { useUnreadReplies } from '../hooks/useUnreadReplies'
 import LeadSelector from '../components/LeadSelector'
-import API, { waApi, leadsApi, repliesApi, profileApi } from '../services/api'
-const statusBadge = { 
-  running: 'badge-blue', 
-  completed: 'badge-green', 
-  queued: 'badge-gray', 
-  failed: 'badge-red', 
-  paused: 'badge-orange',
-  draft: 'bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold animate-pulse'
-}
+import API, { repliesApi, profileApi } from '../services/api'
 
-function normalizePhone(phone) {
-  const digits = (phone || '').replace(/\D/g, '')
-  if (digits.length === 10 && ['6', '7', '8', '9'].includes(digits[0])) return `91${digits}`
-  return digits
+const statusBadge = {
+  running:  'badge-blue',
+  completed:'badge-green',
+  queued:   'badge-gray',
+  failed:   'badge-red',
+  paused:   'badge-orange',
+  draft:    'bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-full text-[10px] font-bold animate-pulse'
 }
 
 function timeAgo(iso) {
@@ -34,7 +29,7 @@ function timeAgo(iso) {
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 }
 
-// ─── UPGRADED LOCAL COMPONENT: CUSTOM INLINE DRAFT PREVIEW TABLE ──────────────
+// ─── SMS QUEUE TABLE ──────────────────────────────────────────────────────────
 function SMSQueueTable({ logs, onRefresh }) {
   const [activeItem, setActiveItem] = useState(null)
   const [editedBody, setEditedBody] = useState('')
@@ -53,11 +48,11 @@ function SMSQueueTable({ logs, onRefresh }) {
         msg_id: activeItem._id,
         updated_body: editedBody
       })
-      toast.success('SMS content approved and released to native outbox queue!')
+      toast.success('SMS approved and released to device queue!')
       setActiveItem(null)
       if (onRefresh) onRefresh()
     } catch {
-      toast.error('Failed to authorize draft content.')
+      toast.error('Failed to approve draft.')
     } finally {
       setApproving(false)
     }
@@ -65,47 +60,50 @@ function SMSQueueTable({ logs, onRefresh }) {
 
   return (
     <div className="space-y-4">
-      {/* Dynamic Inline Layout Split Workspace Preview Block */}
       {activeItem && (
         <div className="card border border-blue-500/30 bg-slate-900 p-5 space-y-4 rounded-2xl fade-up text-white">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div>
               <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                <Edit3 size={14} className="text-blue-400" /> Review Background SMS Draft Copy
+                <Edit3 size={14} className="text-blue-400" /> Review SMS Draft
               </h3>
-              <p className="text-[11px] text-slate-400 mt-0.5">Modifying active payload parameters for: <span className="font-bold text-slate-300">{activeItem.lead_name} (+{activeItem.phone_number})</span></p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Editing for: <span className="font-bold text-slate-300">{activeItem.lead_name} (+{activeItem.phone_number})</span>
+              </p>
             </div>
             <button onClick={() => setActiveItem(null)} className="text-slate-500 hover:text-slate-400"><X size={16} /></button>
           </div>
           <div>
-            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">SMS Text Body Copy</label>
-            <textarea 
-              className="textarea mt-1 w-full bg-slate-950 border-slate-800 text-slate-200 text-xs h-24 resize-none leading-relaxed" 
-              value={editedBody} 
-              onChange={e => setEditedBody(e.target.value)} 
+            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Message Body</label>
+            <textarea
+              className="textarea mt-1 w-full bg-slate-950 border-slate-800 text-slate-200 text-xs h-24 resize-none leading-relaxed"
+              value={editedBody}
+              onChange={e => setEditedBody(e.target.value)}
             />
+            <p className="text-[10px] text-slate-500 mt-1">{editedBody.length} chars · {Math.ceil(editedBody.length / 160) || 1} SMS unit{Math.ceil(editedBody.length / 160) !== 1 ? 's' : ''}</p>
           </div>
           <div className="flex justify-end gap-2 pt-1">
             <button onClick={() => setActiveItem(null)} className="btn-secondary px-4 py-1.5 text-xs text-slate-300">Dismiss</button>
-            <button onClick={handleApproveDraft} disabled={approving} className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-1.5 px-4 font-bold text-xs flex items-center gap-1 transition-all">
-              {approving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Approve & Release to Device Node
+            <button onClick={handleApproveDraft} disabled={approving}
+              className="bg-blue-600 hover:bg-blue-500 text-white rounded-xl py-1.5 px-4 font-bold text-xs flex items-center gap-1 transition-all">
+              {approving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Approve & Release
             </button>
           </div>
         </div>
       )}
 
       <div className="card overflow-hidden bg-white border rounded-2xl shadow-2xs">
-        <div className="px-4 py-3 border-b bg-slate-50 flex items-center justify-between">
+        <div className="px-4 py-3 border-b bg-slate-50">
           <p className="text-xs font-black uppercase tracking-wider text-slate-500">Live Hardware Outbox Stream</p>
         </div>
         <div className="overflow-x-auto">
           <table className="table-base w-full text-xs text-left">
             <thead className="bg-slate-100 text-slate-600">
               <tr>
-                <th className="p-3">Recipient Node</th>
-                <th className="p-3">Cellular Handle</th>
+                <th className="p-3">Recipient</th>
+                <th className="p-3">Phone</th>
                 <th className="p-3">Status</th>
-                <th className="p-3">Generated Message Preview</th>
+                <th className="p-3">Message Preview</th>
                 <th className="p-3">Actions</th>
               </tr>
             </thead>
@@ -117,14 +115,13 @@ function SMSQueueTable({ logs, onRefresh }) {
                     <td className="p-3 font-semibold text-slate-900">{l.lead_name || 'Direct Input'}</td>
                     <td className="p-3 text-slate-500 font-mono">+{l.phone_number}</td>
                     <td className="p-3">
-                      <span className={statusBadge[currentStatus] || 'badge-gray'}>
-                        {l.status}
-                      </span>
+                      <span className={statusBadge[currentStatus] || 'badge-gray'}>{l.status}</span>
                     </td>
                     <td className="p-3 max-w-xs truncate text-slate-600 font-medium">{l.message_body}</td>
                     <td className="p-3">
                       {currentStatus === 'draft' ? (
-                        <button onClick={() => openDraftEditor(l)} className="text-[10px] bg-slate-900 hover:bg-slate-800 text-white font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all">
+                        <button onClick={() => openDraftEditor(l)}
+                          className="text-[10px] bg-slate-900 hover:bg-slate-800 text-white font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-all">
                           <Eye size={11} /> Review Draft
                         </button>
                       ) : (
@@ -135,7 +132,7 @@ function SMSQueueTable({ logs, onRefresh }) {
                 )
               })}
               {logs.length === 0 && (
-                <tr><td colSpan={5} className="text-center py-10 text-slate-400 font-medium">Outbox tracking history is currently empty.</td></tr>
+                <tr><td colSpan={5} className="text-center py-10 text-slate-400 font-medium">Outbox is currently empty.</td></tr>
               )}
             </tbody>
           </table>
@@ -145,46 +142,17 @@ function SMSQueueTable({ logs, onRefresh }) {
   )
 }
 
-
-// ── UPGRADED COMPONENT: Auto-gen Template + Batch Preview/Launch ─────────────
-// ── UPGRADED COMPONENT: Auto-gen Template + Image (MMS) + Batch Preview/Launch
+// ─── SMS CAMPAIGN CREATE ──────────────────────────────────────────────────────
 function SMSCampaignCreate({ onBack, onDone }) {
   const [form, setForm] = useState({ campaign_name: '', campaign_info: '', template: '', daily_limit: 150 })
   const [selectedLeads, setSelectedLeads] = useState(new Map())
   const [autoGenLoading, setAutoGenLoading] = useState(false)
-
-  // ── Image (MMS) state ────────────────────────────────────────────────
-  const [profileMedia, setProfileMedia] = useState({ photos: [] })
-  const [selectedPhotoIdx, setSelectedPhotoIdx] = useState(null)
-  const [extraImageUrl, setExtraImageUrl] = useState(null)
-  const [mediaLoading, setMediaLoading] = useState(false)
-
-  const [drafts, setDrafts] = useState(null) // null = setup screen
+  const [drafts, setDrafts] = useState(null)
   const [draftIdx, setDraftIdx] = useState(0)
   const [generatingPreview, setGeneratingPreview] = useState(false)
   const [launching, setLaunching] = useState(false)
-
   const debounceRef = useRef(null)
 
-  const finalImage = extraImageUrl || (selectedPhotoIdx !== null ? profileMedia.photos[selectedPhotoIdx] : null)
-
-  // ── Load profile photos on mount ────────────────────────────────────
-  useEffect(() => {
-    const load = async () => {
-      setMediaLoading(true)
-      try {
-        const { data } = await profileApi.get()
-        setProfileMedia({ photos: data.product_photos || [] })
-      } catch {
-        // silent - image is optional
-      } finally {
-        setMediaLoading(false)
-      }
-    }
-    load()
-  }, [])
-
-  // ── Auto-generate SMS template on campaign_name / campaign_info change ──
   const autoGenerate = async () => {
     if (!form.campaign_name.trim() && !form.campaign_info.trim()) return
     setAutoGenLoading(true)
@@ -194,11 +162,8 @@ function SMSCampaignCreate({ onBack, onDone }) {
         campaign_info: form.campaign_info,
       })
       setForm(p => ({ ...p, template: data.template || p.template }))
-    } catch {
-      // silent fail
-    } finally {
-      setAutoGenLoading(false)
-    }
+    } catch { /* silent */ }
+    finally { setAutoGenLoading(false) }
   }
 
   useEffect(() => {
@@ -207,12 +172,10 @@ function SMSCampaignCreate({ onBack, onDone }) {
     return () => clearTimeout(debounceRef.current)
   }, [form.campaign_name, form.campaign_info]) // eslint-disable-line
 
-  // ── Generate Preview (batch AI drafts) ──────────────────────────────────
   const generatePreview = async () => {
     if (!form.campaign_name.trim()) return toast.error('Enter campaign name')
     if (selectedLeads.size === 0) return toast.error('Select at least one lead')
     if (!form.template.trim()) return toast.error('Add a message template')
-
     setGeneratingPreview(true)
     try {
       const leadIds = Array.from(selectedLeads.keys()).map(id => parseInt(id, 10) || id)
@@ -224,12 +187,10 @@ function SMSCampaignCreate({ onBack, onDone }) {
       })
       setDrafts(data.drafts || [])
       setDraftIdx(0)
-      toast.success(`${data.drafts?.length || 0} drafts ready — review below`)
+      toast.success(`${data.drafts?.length || 0} drafts ready`)
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Draft generation failed')
-    } finally {
-      setGeneratingPreview(false)
-    }
+    } finally { setGeneratingPreview(false) }
   }
 
   const updateDraftMessage = (value) => {
@@ -244,19 +205,14 @@ function SMSCampaignCreate({ onBack, onDone }) {
     })
   }
 
-  // ── Launch ────────────────────────────────────────────────────────────
   const launch = async () => {
     if (!drafts || drafts.length === 0) return toast.error('No drafts to send')
     setLaunching(true)
     try {
-      const imagePayload = finalImage
-        ? (finalImage.includes(',') ? finalImage.split(',')[1] : finalImage)
-        : null
-
       await API.post('/sms/launch', {
         campaign_name: form.campaign_name,
         campaign_info: form.campaign_info,
-        image_base64: imagePayload,
+        image_base64: null,
         drafts: drafts.map(d => ({
           lead_id: d.lead_id,
           phone: d.phone,
@@ -266,20 +222,14 @@ function SMSCampaignCreate({ onBack, onDone }) {
           message: d.message,
         }))
       })
-      toast.success(finalImage
-        ? 'Campaign launched — MMS messages queued for the Android gateway!'
-        : 'Campaign launched — messages queued for the Android gateway!')
+      toast.success('Campaign launched — messages queued for the Android gateway!')
       setTimeout(onDone, 500)
     } catch (e) {
       toast.error(e.response?.data?.detail || 'Launch failed')
-    } finally {
-      setLaunching(false)
-    }
+    } finally { setLaunching(false) }
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // REVIEW SCREEN
-  // ─────────────────────────────────────────────────────────────────────
+  // ── REVIEW SCREEN ─────────────────────────────────────────────────────
   if (drafts) {
     const d = drafts[draftIdx]
     const total = drafts.length
@@ -296,9 +246,7 @@ function SMSCampaignCreate({ onBack, onDone }) {
     }
 
     const charCount = d.message?.length || 0
-    const limit = finalImage ? 150 : 160
-    const segments = finalImage ? 1 : (Math.ceil(charCount / 160) || 1)
-    const overLimit = finalImage && charCount > limit
+    const segments = Math.ceil(charCount / 160) || 1
 
     return (
       <div className="space-y-4 max-w-2xl mx-auto">
@@ -307,11 +255,10 @@ function SMSCampaignCreate({ onBack, onDone }) {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-slate-900">Review Drafts</h2>
-            <p className="text-sm text-slate-400 mt-0.5">
-              {total} message{total !== 1 ? 's' : ''} ready · {finalImage ? 'MMS with image' : 'SMS text-only'} · Edit, then launch
-            </p>
+            <p className="text-sm text-slate-400 mt-0.5">{total} message{total !== 1 ? 's' : ''} ready · Edit, then launch</p>
           </div>
-          <button onClick={launch} disabled={launching} className="px-6 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
+          <button onClick={launch} disabled={launching}
+            className="px-6 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl flex items-center gap-1 shadow-sm disabled:opacity-40">
             {launching ? <Loader2 size={14} className="animate-spin" /> : <Smartphone size={14} />}
             {launching ? 'Launching…' : 'Launch'}
           </button>
@@ -339,12 +286,11 @@ function SMSCampaignCreate({ onBack, onDone }) {
           </button>
         </div>
 
-        {/* Editable message + SMS/MMS-style preview */}
         <div className="card p-5 space-y-3">
           <div className="flex items-center justify-between">
-            <label className="field-label mb-0">{finalImage ? 'Caption' : 'Message'}</label>
-            <span className={`text-[10px] font-bold ${overLimit ? 'text-red-500' : 'text-slate-400'}`}>
-              {charCount} chars {finalImage ? `· ${limit} char limit (MMS caption)` : `· ${segments} SMS unit${segments !== 1 ? 's' : ''}`}
+            <label className="field-label mb-0">Message</label>
+            <span className="text-[10px] font-bold text-slate-400">
+              {charCount} chars · {segments} SMS unit{segments !== 1 ? 's' : ''}
             </span>
           </div>
           <textarea
@@ -353,14 +299,11 @@ function SMSCampaignCreate({ onBack, onDone }) {
             onChange={e => updateDraftMessage(e.target.value)}
           />
 
-          {/* SMS/MMS bubble preview */}
+          {/* SMS bubble preview */}
           <div>
             <label className="field-label">Preview</label>
             <div className="rounded-2xl border border-slate-200 bg-slate-100 p-4">
-              <div className="bg-blue-500 text-white rounded-2xl rounded-tr-none px-3 py-2 max-w-[85%] ml-auto shadow-sm space-y-2">
-                {finalImage && (
-                  <img src={finalImage} alt="" className="w-full max-w-[200px] rounded-lg border border-white/30" />
-                )}
+              <div className="bg-blue-500 text-white rounded-2xl rounded-tr-none px-3 py-2 max-w-[85%] ml-auto shadow-sm">
                 <p className="text-sm whitespace-pre-wrap leading-relaxed">{d.message || '—'}</p>
               </div>
               <p className="text-[10px] text-slate-400 text-right mt-1">12:00 PM</p>
@@ -368,7 +311,8 @@ function SMSCampaignCreate({ onBack, onDone }) {
           </div>
         </div>
 
-        <button onClick={launch} disabled={launching} className="w-full px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-40">
+        <button onClick={launch} disabled={launching}
+          className="w-full px-6 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 shadow-sm disabled:opacity-40">
           {launching ? <Loader2 size={15} className="animate-spin" /> : <Smartphone size={15} />}
           {launching ? 'Launching…' : `Launch to ${total} Lead${total !== 1 ? 's' : ''}`}
         </button>
@@ -376,23 +320,25 @@ function SMSCampaignCreate({ onBack, onDone }) {
     )
   }
 
-  // ─────────────────────────────────────────────────────────────────────
-  // SETUP SCREEN
-  // ─────────────────────────────────────────────────────────────────────
+  // ── SETUP SCREEN ──────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
+      <button onClick={onBack} className="btn-ghost -ml-2"><ChevronLeft size={16} /> Back</button>
+      <h2 className="text-xl font-bold text-slate-900">New SMS Campaign</h2>
+
       <div className="grid grid-cols-3 gap-6">
-        {/* Left: Input */}
+        {/* Left: Inputs */}
         <div className="col-span-1 space-y-4">
           <div>
             <label className="field-label">Campaign Name</label>
-            <input className="input w-full" placeholder="e.g. Tech Leads Q1" value={form.campaign_name} onChange={e => setForm({...form, campaign_name: e.target.value})} />
+            <input className="input w-full" placeholder="e.g. Physio Fest Follow-up"
+              value={form.campaign_name} onChange={e => setForm({ ...form, campaign_name: e.target.value })} />
           </div>
 
           <div>
             <label className="field-label mb-1">Campaign Info / Event Context</label>
-            <input className="input w-full" placeholder="e.g., Medical Physiotherapy Function, Kochi"
-              value={form.campaign_info} onChange={e => setForm({...form, campaign_info: e.target.value})} />
+            <input className="input w-full" placeholder="e.g., All India Physio Fest, Kochi"
+              value={form.campaign_info} onChange={e => setForm({ ...form, campaign_info: e.target.value })} />
             <p className="text-[10px] text-slate-400 mt-1">Used as {'{campaign_info}'} in your template.</p>
           </div>
 
@@ -405,111 +351,41 @@ function SMSCampaignCreate({ onBack, onDone }) {
                 </span>
               )}
             </div>
-            <textarea className="textarea w-full h-32" placeholder="Hi {lead_name}, regarding {lead_company}..." value={form.template} onChange={e => setForm({...form, template: e.target.value})} />
-            <p className="text-[10px] text-slate-400 mt-1">Auto-fills as you type campaign name/context. Edit freely.</p>
+            <textarea className="textarea w-full h-32"
+              placeholder="Hi {lead_name}, this is [Name] from [Company]. {campaign_info} — we help {lead_company} grow. Visit: https://yoursite.com"
+              value={form.template}
+              onChange={e => setForm({ ...form, template: e.target.value })} />
+            <p className="text-[10px] text-slate-400 mt-1">Auto-fills from campaign context. Edit freely.</p>
           </div>
 
-          {/* ── Image picker (optional → MMS) ── */}
           <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="field-label mb-0">Image (optional — sends as MMS)</label>
-              {finalImage && (
-                <button type="button" onClick={() => { setSelectedPhotoIdx(null); setExtraImageUrl(null) }}
-                  className="text-xs text-red-500 font-bold flex items-center gap-1">
-                  <X size={12} /> Remove
-                </button>
-              )}
-            </div>
-
-            {mediaLoading ? (
-              <div className="flex items-center gap-2 text-xs text-slate-400 py-2">
-                <Loader2 size={13} className="animate-spin" /> Loading profile images...
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {profileMedia.photos.length > 0 ? (
-                  <div>
-                    <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
-                      From Settings (Product Photos)
-                    </p>
-                    <div className="grid grid-cols-4 gap-2">
-                      {profileMedia.photos.map((src, i) => (
-                        <button key={i} type="button"
-                          onClick={() => { setSelectedPhotoIdx(selectedPhotoIdx === i ? null : i); setExtraImageUrl(null) }}
-                          className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all
-                            ${selectedPhotoIdx === i ? 'border-blue-500' : 'border-slate-200 opacity-60'}`}>
-                          <img src={src} alt="" className="w-full h-full object-cover" />
-                          {selectedPhotoIdx === i && (
-                            <div className="absolute top-1 right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
-                              <Check size={9} className="text-white" />
-                            </div>
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-400">No product photos in Settings yet.</p>
-                )}
-
-                <div>
-                  <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Or Add Other Image</p>
-                  {extraImageUrl ? (
-                    <div className="relative w-20 h-20 rounded-xl overflow-hidden border border-slate-300">
-                      <img src={extraImageUrl} className="w-full h-full object-cover" alt="" />
-                      <button onClick={() => setExtraImageUrl(null)} className="absolute top-1 right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
-                        <X size={8} className="text-white" />
-                      </button>
-                    </div>
-                  ) : (
-                    <button type="button" onClick={() => {
-                      const input = document.createElement('input')
-                      input.type = 'file'; input.accept = 'image/*'
-                      input.onchange = e => {
-                        const f = e.target.files[0]
-                        const r = new FileReader()
-                        r.onload = ev => { setExtraImageUrl(ev.target.result); setSelectedPhotoIdx(null) }
-                        r.readAsDataURL(f)
-                      }
-                      input.click()
-                    }} className="w-full h-14 border-2 border-dashed border-slate-300 rounded-xl text-xs text-slate-400 flex items-center justify-center gap-2 hover:border-slate-400 transition-colors">
-                      <Image size={13} /> Upload an image
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-            <p className="text-[10px] text-slate-400 mt-1">
-              {finalImage ? 'Sent as MMS with your caption below.' : 'No image — sent as plain SMS.'}
-            </p>
+            <label className="field-label">Daily Limit</label>
+            <input type="number" min={1} max={500} className="input w-full"
+              value={form.daily_limit}
+              onChange={e => setForm({ ...form, daily_limit: parseInt(e.target.value) || 150 })} />
           </div>
 
           <LeadSelector selected={selectedLeads} onChange={setSelectedLeads} requiredChannels="sms" />
         </div>
 
-        {/* Right: Summary + Generate Preview */}
-        <div className="col-span-2 card p-6">
-          <div className="flex items-center gap-2 text-slate-800 font-bold text-sm mb-4">
+        {/* Right: Summary + Preview */}
+        <div className="col-span-2 card p-6 space-y-4">
+          <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
             <Zap size={15} className="text-blue-500" /> Campaign Summary
           </div>
-          <div className="bg-slate-50 p-4 border rounded-xl space-y-2 text-sm text-slate-600 font-medium mb-6">
+          <div className="bg-slate-50 p-4 border rounded-xl space-y-2 text-sm text-slate-600 font-medium">
             <p>🎯 Leads selected: <strong>{selectedLeads.size}</strong></p>
-            <p>📨 Channel: <strong>{finalImage ? 'SMS + Image (MMS)' : 'SMS (text-only)'}</strong></p>
-            <p>📝 Template length: <strong>{form.template.length} chars</strong></p>
+            <p>📨 Channel: <strong>SMS (plain text)</strong></p>
+            <p>📝 Template length: <strong>{form.template.length} chars · {Math.ceil(form.template.length / 160) || 1} unit{Math.ceil(form.template.length / 160) !== 1 ? 's' : ''}</strong></p>
+            <p>📅 Daily limit: <strong>{form.daily_limit}</strong></p>
           </div>
 
-          {finalImage && (
-            <div className="mb-4">
-              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Selected Image</p>
-              <img src={finalImage} alt="" className="w-32 h-32 rounded-xl object-cover border border-slate-200" />
-            </div>
-          )}
-
-          <div className="bg-slate-950 text-white p-6 rounded-2xl min-h-[160px] font-mono text-sm shadow-inner mb-6 whitespace-pre-wrap">
-            {form.template || "Your SMS template preview will appear here..."}
+          <div className="bg-slate-950 text-white p-6 rounded-2xl min-h-[160px] font-mono text-sm shadow-inner whitespace-pre-wrap">
+            {form.template || 'Your SMS template preview will appear here...'}
           </div>
 
-          <button onClick={generatePreview} disabled={generatingPreview || selectedLeads.size === 0} className="w-full btn-primary py-3 flex items-center justify-center gap-2">
+          <button onClick={generatePreview} disabled={generatingPreview || selectedLeads.size === 0}
+            className="w-full btn-primary py-3 flex items-center justify-center gap-2">
             {generatingPreview ? <Loader2 className="animate-spin" size={16} /> : <Eye size={16} />}
             {generatingPreview ? 'Generating…' : 'Generate Preview'}
           </button>
@@ -519,9 +395,8 @@ function SMSCampaignCreate({ onBack, onDone }) {
   )
 }
 
-
-
-function MainSMSDashboard({ onStartCampaign, metrics, logs, refreshDashboard }) {
+// ─── MAIN SMS DASHBOARD ───────────────────────────────────────────────────────
+function MainSMSDashboard({ onStartCampaign, logs, refreshDashboard }) {
   const [newNodeId, setNewNodeId] = useState('')
   const [nodes, setNodes] = useState([])
   const [showInstructions, setShowInstructions] = useState(false)
@@ -540,11 +415,11 @@ function MainSMSDashboard({ onStartCampaign, metrics, logs, refreshDashboard }) 
     if (!newNodeId.trim()) return
     try {
       await API.post('/sms/register-node', { device_id: newNodeId.trim().toLowerCase() })
-      toast.success('Hardware Node Signature Verification Link established!')
+      toast.success('Hardware Node linked!')
       setNewNodeId('')
       fetchNodes()
     } catch {
-      toast.error('Signature mapping rejected.')
+      toast.error('Registration failed.')
     }
   }
 
@@ -552,27 +427,35 @@ function MainSMSDashboard({ onStartCampaign, metrics, logs, refreshDashboard }) 
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-black text-slate-900">Android Mobile Node Pipeline</h2>
-          <p className="text-xs text-slate-400">Route AI lead context payloads natively over cellular hardware switches.</p>
+          <h2 className="text-xl font-black text-slate-900">Android SMS Gateway</h2>
+          <p className="text-xs text-slate-400">Route AI-personalised SMS outreach over your Android device's SIM.</p>
         </div>
         <div className="flex gap-2">
-          <a href="https://neolix-neolix-backend.hf.space/static/neolix_sms.apk" download="neolix-gateway.apk" className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-colors">
+          <a href="https://neolix-neolix-backend.hf.space/static/neolix_sms.apk"
+            download="neolix-gateway.apk"
+            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors">
             <Smartphone size={13} /> Download Gateway APK
           </a>
-          <button type="button" onClick={onStartCampaign} className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1 shadow-2xs">
-            <Plus size={12} /> Init Cluster
+          <button type="button" onClick={onStartCampaign}
+            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1">
+            <Plus size={12} /> New Campaign
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
         <div className="space-y-4">
-          <div className="bg-white border rounded-2xl p-5 shadow-2xs space-y-4">
+          {/* Node registration */}
+          <div className="bg-white border rounded-2xl p-5 space-y-4">
             <h3 className="text-xs font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
-              <ShieldCheck size={14} className="text-emerald-500" /> Authorized Hardware Matrices
+              <ShieldCheck size={14} className="text-emerald-500" /> Authorized Devices
             </h3>
             <form onSubmit={handleRegister} className="flex gap-2">
-              <input required className="flex-1 px-3 py-1.5 border rounded-xl font-mono text-xs uppercase bg-slate-50 focus:border-slate-900 outline-none" placeholder="e.g. 8516a3de3bfec38b" value={newNodeId} onChange={e => setNewNodeId(e.target.value)} />
+              <input required
+                className="flex-1 px-3 py-1.5 border rounded-xl font-mono text-xs uppercase bg-slate-50 focus:border-slate-900 outline-none"
+                placeholder="e.g. 8516a3de3bfec38b"
+                value={newNodeId}
+                onChange={e => setNewNodeId(e.target.value)} />
               <button type="submit" className="px-3 bg-slate-900 text-white rounded-xl text-xs font-bold hover:bg-slate-800">Link</button>
             </form>
             <div className="space-y-1.5">
@@ -582,42 +465,37 @@ function MainSMSDashboard({ onStartCampaign, metrics, logs, refreshDashboard }) 
                   <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                 </div>
               ))}
-              {nodes.length === 0 && <p className="text-center text-slate-400 text-xs py-4">No active gateway links initialized.</p>}
+              {nodes.length === 0 && <p className="text-center text-slate-400 text-xs py-4">No devices linked yet.</p>}
             </div>
           </div>
 
-          <div className="bg-white border rounded-2xl p-5 shadow-2xs space-y-3">
-            <button type="button" onClick={() => setShowInstructions(!showInstructions)} className="w-full flex items-center justify-between text-xs font-black uppercase tracking-wider text-slate-500 outline-none">
+          {/* Setup guide */}
+          <div className="bg-white border rounded-2xl p-5 space-y-3">
+            <button type="button" onClick={() => setShowInstructions(!showInstructions)}
+              className="w-full flex items-center justify-between text-xs font-black uppercase tracking-wider text-slate-500 outline-none">
               <span className="flex items-center gap-1"><Sparkles size={13} className="text-blue-500" /> Device Setup Guide</span>
               <span className="text-slate-400">{showInstructions ? 'Hide' : 'Show'}</span>
             </button>
-            
+
             {showInstructions && (
-              <div className="text-xs text-slate-600 space-y-2.5 pt-2 border-t border-dashed transition-all">
-                <div className="space-y-1">
-                  <p className="font-bold text-slate-800">1. Install Package</p>
-                  <p className="text-slate-500">Download and open the APK on your Android device. Tap allow when prompted to approve system permissions.</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="font-bold text-slate-800">2. Register Token Signature</p>
-                  <p className="text-slate-500">Copy the unique alphanumeric <span className="font-mono bg-slate-100 px-1 rounded text-slate-700">Device Node ID</span> from the app screen, paste it into the box above, and click Link.</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="font-bold text-slate-800">3. Lock Background Thread (Crucial)</p>
-                  <p className="text-slate-500">Long-press the app icon ──► App Info ──► Battery Usage. Change the setting to <span className="font-bold text-slate-800">No Restrictions / Allow Background Activity</span>.</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="font-bold text-slate-800">4. Unblock Network Doze Sleep</p>
-                  <p className="text-slate-500">Go to phone Settings ──► Battery ──► More Settings. Turn <span className="font-bold text-slate-800">Sleep Standby Optimization OFF</span> to maintain real-time background queues.</p>
-                </div>
-                <div className="space-y-1">
-                  <p className="font-bold text-slate-800">5. Go Live</p>
-                  <p className="text-slate-500">Flip the application toggle to <span className="text-emerald-600 font-bold">ON</span>. A permanent sync icon will mount onto your status bar drawer.</p>
-                </div>
+              <div className="text-xs text-slate-600 space-y-2.5 pt-2 border-t border-dashed">
+                {[
+                  ['1. Install APK', 'Download and open the APK. Tap allow when prompted for permissions.'],
+                  ['2. Register Device ID', 'Copy the Device Node ID from the app, paste it above, and click Link.'],
+                  ['3. Lock Background', 'Long-press app icon → App Info → Battery → No Restrictions.'],
+                  ['4. Disable Doze', 'Settings → Battery → More Settings → Sleep Standby Optimization OFF.'],
+                  ['5. Go Live', 'Toggle ON in the app. A sync icon appears in your status bar.'],
+                ].map(([title, desc]) => (
+                  <div key={title} className="space-y-1">
+                    <p className="font-bold text-slate-800">{title}</p>
+                    <p className="text-slate-500">{desc}</p>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
+
         <div className="lg:col-span-2">
           <SMSQueueTable logs={logs} onRefresh={refreshDashboard} />
         </div>
@@ -626,43 +504,47 @@ function MainSMSDashboard({ onStartCampaign, metrics, logs, refreshDashboard }) 
   )
 }
 
+// ─── THREAD VIEW ──────────────────────────────────────────────────────────────
 function ThreadView({ replyId, onClose }) {
   const [thread, setThread] = useState(null)
   const [loading, setLoading] = useState(true)
   const [replyText, setReplyText] = useState('')
-  const [sending, setSending]   = useState(false)
+  const [sending, setSending] = useState(false)
   const [aiLoading, setAiLoading] = useState(false)
   const bottomRef = useRef()
 
   const load = async () => {
     setLoading(true)
     try { const { data } = await repliesApi.thread(replyId); setThread(data) }
-    catch { toast.error('Failed to load thread') } finally { setLoading(false) }
+    catch { toast.error('Failed to load thread') }
+    finally { setLoading(false) }
   }
 
   useEffect(() => { load() }, [replyId])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [thread])
 
   const send = async () => {
-    if (!replyText.trim()) { toast.error('Write a reply first'); return }
+    if (!replyText.trim()) return toast.error('Write a reply first')
     setSending(true)
     try {
       await repliesApi.respond(replyId, { body: replyText, use_ai: false })
       toast.success('Reply sent!')
       setReplyText('')
       await load()
-    } catch { toast.error('Failed to send') } finally { setSending(false) }
+    } catch { toast.error('Failed to send') }
+    finally { setSending(false) }
   }
 
   const draftAI = async () => {
     setAiLoading(true)
     try {
-      const { data } = await repliesApi.respond(replyId, { body: '', use_ai: true })
+      await repliesApi.respond(replyId, { body: '', use_ai: true })
       const { data: fresh } = await repliesApi.thread(replyId)
       setReplyText(fresh.reply?.our_reply || '')
       setThread(fresh)
       toast.success('AI draft ready — edit and send')
-    } catch { toast.error('AI failed') } finally { setAiLoading(false) }
+    } catch { toast.error('AI failed') }
+    finally { setAiLoading(false) }
   }
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 size={20} className="animate-spin text-blue-500" /></div>
@@ -681,15 +563,11 @@ function ThreadView({ replyId, onClose }) {
         </span>
         <button onClick={onClose} className="btn-icon p-1.5"><X size={15} /></button>
       </div>
-      <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-100 flex-shrink-0">
-        <p className="text-xs text-slate-400 uppercase font-medium tracking-wide mb-0.5">Subject</p>
-        <p className="text-sm font-semibold text-slate-800">{reply.subject}</p>
-      </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 bg-white">
         {sent_item && (
           <div className="flex flex-col items-end gap-1">
-            <p className="text-[10px] text-slate-400 uppercase tracking-wide">Your Outbox SMS · {timeAgo(sent_item.sent_at)}</p>
+            <p className="text-[10px] text-slate-400 uppercase tracking-wide">Your SMS · {timeAgo(sent_item.sent_at)}</p>
             <div className="bubble-sent">{sent_item.body}</div>
           </div>
         )}
@@ -708,9 +586,11 @@ function ThreadView({ replyId, onClose }) {
 
       {reply.status !== 'responded' ? (
         <div className="flex-shrink-0 border-t border-slate-100 p-4 bg-white space-y-3">
-          <textarea value={replyText} onChange={e => setReplyText(e.target.value)} placeholder="Write your reply…" className="textarea h-24 text-sm" />
+          <textarea value={replyText} onChange={e => setReplyText(e.target.value)}
+            placeholder="Write your reply…" className="textarea h-24 text-sm" />
           <div className="flex gap-2">
-            <button onClick={send} disabled={sending || !replyText.trim()} className="px-5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl flex items-center gap-1">
+            <button onClick={send} disabled={sending || !replyText.trim()}
+              className="px-5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl flex items-center gap-1">
               {sending ? <Loader2 size={14} className="animate-spin" /> : <Inbox size={14} />}
               {sending ? 'Sending…' : 'Send'}
             </button>
@@ -731,44 +611,48 @@ function ThreadView({ replyId, onClose }) {
   )
 }
 
+// ─── REPLIES TAB ──────────────────────────────────────────────────────────────
 function RepliesTab() {
-  const [subTab, setSubTab]   = useState('inbox')
-  const [inbox, setInbox]     = useState([])
-  const [sent, setSent]       = useState([])
+  const [subTab, setSubTab] = useState('inbox')
+  const [inbox, setInbox] = useState([])
+  const [sent, setSent] = useState([])
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState(null)
   const [selectedSent, setSelectedSent] = useState(null)
   const [polling, setPolling] = useState(false)
-  const [search, setSearch]   = useState('')
+  const [search, setSearch] = useState('')
 
   const loadInbox = async () => {
     setLoading(true)
     try { const { data } = await repliesApi.inbox(null, 'sms'); setInbox(data) }
-    catch { toast.error('Failed to load inbox') } finally { setLoading(false) }
+    catch { toast.error('Failed to load inbox') }
+    finally { setLoading(false) }
   }
   const loadSent = async () => {
     setLoading(true)
     try { const { data } = await repliesApi.sent(null, 'sms'); setSent(data) }
-    catch { toast.error('Failed to load sent') } finally { setLoading(false) }
+    catch { toast.error('Failed to load sent') }
+    finally { setLoading(false) }
   }
 
   useEffect(() => { subTab === 'inbox' ? loadInbox() : loadSent() }, [subTab])
 
   const poll = async () => {
     setPolling(true)
-    try { await repliesApi.poll(); toast.success('Syncing inbox…'); setTimeout(loadInbox, 2000) }
-    catch { toast.error('Poll failed') } finally { setPolling(false) }
+    try { await repliesApi.poll(); toast.success('Syncing…'); setTimeout(loadInbox, 2000) }
+    catch { toast.error('Poll failed') }
+    finally { setPolling(false) }
   }
 
   const filteredInbox = inbox.filter(i =>
-    !search || i.from_email.toLowerCase().includes(search.toLowerCase()) ||
-    i.from_name?.toLowerCase().includes(search.toLowerCase()) ||
-    i.subject?.toLowerCase().includes(search.toLowerCase())
+    !search ||
+    i.from_email?.toLowerCase().includes(search.toLowerCase()) ||
+    i.from_name?.toLowerCase().includes(search.toLowerCase())
   )
   const filteredSent = sent.filter(i =>
-    !search || i.to_email?.toLowerCase().includes(search.toLowerCase()) ||
-    i.to_company?.toLowerCase().includes(search.toLowerCase()) ||
-    i.subject?.toLowerCase().includes(search.toLowerCase())
+    !search ||
+    i.to_email?.toLowerCase().includes(search.toLowerCase()) ||
+    i.to_company?.toLowerCase().includes(search.toLowerCase())
   )
 
   const statusDot = { unread: 'bg-blue-500', read: 'bg-slate-300', responded: 'bg-emerald-400' }
@@ -791,7 +675,7 @@ function RepliesTab() {
               className="bg-transparent text-sm outline-none placeholder-slate-400 w-36" />
           </div>
           {subTab === 'inbox' && (
-            <button onClick={poll} disabled={polling} className="btn-icon" title="Sync inbox">
+            <button onClick={poll} disabled={polling} className="btn-icon">
               <RefreshCw size={14} className={polling ? 'animate-spin text-blue-500' : ''} />
             </button>
           )}
@@ -799,6 +683,7 @@ function RepliesTab() {
       </div>
 
       <div className="flex flex-1 overflow-hidden border border-slate-200 rounded-xl mt-3">
+        {/* Left list */}
         <div className="w-80 flex-shrink-0 border-r border-slate-100 overflow-y-auto bg-white">
           {loading && <div className="flex justify-center py-8"><Loader2 size={18} className="animate-spin text-blue-500" /></div>}
 
@@ -822,7 +707,6 @@ function RepliesTab() {
                     </p>
                     <p className="text-[10px] text-slate-400 flex-shrink-0">{timeAgo(item.received_at)}</p>
                   </div>
-                  <p className="text-xs text-slate-500 truncate">{item.subject}</p>
                   <p className="text-xs text-slate-400 truncate mt-0.5">{item.preview}</p>
                 </div>
               </div>
@@ -855,6 +739,7 @@ function RepliesTab() {
           ))}
         </div>
 
+        {/* Right detail */}
         <div className="flex-1 overflow-hidden bg-white">
           {subTab === 'inbox' && selectedId && <ThreadView replyId={selectedId} onClose={() => setSelectedId(null)} />}
           {subTab === 'inbox' && !selectedId && (
@@ -888,12 +773,11 @@ function RepliesTab() {
   )
 }
 
+// ─── ROOT EXPORT ──────────────────────────────────────────────────────────────
 export default function SMSPage() {
-  const [view, setView] = useState('list') 
-  const [metrics, setMetrics] = useState({ pending_count: 0, processing_count: 0, sent_today: 0, daily_limit: 150 })
+  const [view, setView] = useState('list')
   const [logs, setLogs] = useState([])
-
-  const { smsUnread } = useUnreadReplies();
+  const { smsUnread } = useUnreadReplies()
 
   useEffect(() => {
     refreshDashboard()
@@ -903,8 +787,6 @@ export default function SMSPage() {
 
   const refreshDashboard = async () => {
     try {
-      const mRes = await API.get('/sms/queue-status')
-      setMetrics(mRes.data)
       const lRes = await API.get('/sms/logs')
       setLogs(lRes.data)
     } catch {}
@@ -913,11 +795,13 @@ export default function SMSPage() {
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto text-slate-800">
       <div className="flex items-center gap-4 border-b pb-1 -mt-2">
-        <button onClick={() => setView('list')} className={`px-4 py-2 font-bold text-sm border-b-2 ${view === 'list' || view === 'create' ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-400'}`}>
+        <button onClick={() => setView('list')}
+          className={`px-4 py-2 font-bold text-sm border-b-2 ${view === 'list' || view === 'create' ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-400'}`}>
           Gateway Monitor
         </button>
-        <button onClick={() => setView('replies')} className={`px-4 py-2 font-bold text-sm border-b-2 flex items-center gap-2 ${view === 'replies' ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-400'}`}>
-          <span>Replies Channel</span>
+        <button onClick={() => setView('replies')}
+          className={`px-4 py-2 font-bold text-sm border-b-2 flex items-center gap-2 ${view === 'replies' ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-400'}`}>
+          Replies Channel
           {smsUnread > 0 && (
             <span className="bg-red-500 text-white font-black text-[10px] px-1.5 py-0.5 rounded-full animate-bounce">
               {smsUnread} New
@@ -926,9 +810,10 @@ export default function SMSPage() {
         </button>
       </div>
 
-      {view === 'list' && <MainSMSDashboard metrics={metrics} logs={logs} refreshDashboard={refreshDashboard} onStartCampaign={() => setView('create')} />}
-      {view === 'create' && <SMSCampaignCreate onBack={() => setView('list')} onDone={() => setView('list')} />}
+      {view === 'list'    && <MainSMSDashboard logs={logs} refreshDashboard={refreshDashboard} onStartCampaign={() => setView('create')} />}
+      {view === 'create'  && <SMSCampaignCreate onBack={() => setView('list')} onDone={() => { setView('list'); refreshDashboard() }} />}
       {view === 'replies' && <RepliesTab />}
     </div>
   )
 }
+
