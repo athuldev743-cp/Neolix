@@ -49,23 +49,23 @@ const MSG_TYPES = [
 // ═══════════════════════════════════════════════════════════
 function BaileysConnectionStatus() {
   const [status, setStatus] = useState({ connected: false, qr: null, loading: true })
+  const [loggingOut, setLoggingOut] = useState(false)
   const lastQrRef = useRef(null)
 
-  const checkStatus = async () => {
+  const checkStatus = async () => { /* unchanged */ }
+
+  const handleLogout = async () => {
+    setLoggingOut(true)
     try {
-      const { data } = await waApi.status()
-      if (data?.connected) {
-        setStatus({ connected: true, qr: null, loading: false })
-        return
-      }
-      if (data?.qr && data.qr !== lastQrRef.current) {
-        lastQrRef.current = data.qr
-        setStatus({ connected: false, qr: data.qr, loading: false })
-      } else if (!data?.qr) {
-        setStatus(p => ({ ...p, loading: false }))
-      }
+      await waApi.logout()
+      lastQrRef.current = null
+      setStatus({ connected: false, qr: null, loading: false })
+      toast.success('Disconnected — scan a new QR to link a different number')
+      setTimeout(checkStatus, 1000)
     } catch {
-      setStatus(p => ({ ...p, loading: false }))
+      toast.error('Failed to disconnect')
+    } finally {
+      setLoggingOut(false)
     }
   }
 
@@ -78,9 +78,18 @@ function BaileysConnectionStatus() {
   if (status.loading) return <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2"><Loader2 size={13} className="animate-spin text-slate-800" /> Fetching pipeline anchor authorization state...</div>
 
   if (status.connected) return (
-    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center gap-3 text-emerald-800">
-      <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-      <div className="text-xs font-bold">Baileys API Service Connected Natively</div>
+    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-emerald-800">
+      <div className="flex items-center gap-3">
+        <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
+        <div className="text-xs font-bold">Baileys API Service Connected Natively</div>
+      </div>
+      <button
+        onClick={handleLogout}
+        disabled={loggingOut}
+        className="text-[11px] font-bold text-emerald-700 bg-white border border-emerald-300 rounded-lg px-2.5 py-1.5 hover:bg-emerald-100 transition-colors disabled:opacity-40"
+      >
+        {loggingOut ? 'Disconnecting…' : 'Disconnect / Switch Number'}
+      </button>
     </div>
   )
 
