@@ -54,27 +54,33 @@ function BaileysConnectionStatus() {
 
   const checkStatus = async () => {
     try {
-      // 1. Call GET /qr (or waApi.getQr()) instead of waApi.status()
+      // MUST poll /qr endpoint continuously to get new QR iterations
       const { data } = await waApi.getQr()
 
-      // 2. Handle connected state from /qr response
       if (data?.status === 'connected' || data?.connected) {
         setStatus({ connected: true, qr: null, loading: false })
         lastQrRef.current = null
         return
       }
 
-      // 3. Update QR state when a new QR code string arrives
       if (data?.qr && data.qr !== lastQrRef.current) {
         lastQrRef.current = data.qr
         setStatus({ connected: false, qr: data.qr, loading: false })
       } else if (!data?.qr && !lastQrRef.current) {
         setStatus(p => ({ ...p, connected: false, loading: false }))
       }
-    } catch {
+    } catch (err) {
+      console.error('QR poll error:', err)
       setStatus(p => ({ ...p, loading: false }))
     }
   }
+
+  useEffect(() => {
+    checkStatus()
+    // Poll every 2 seconds to capture refreshed QR codes before 428 timeouts
+    const iv = setInterval(checkStatus, 2000)
+    return () => clearInterval(iv)
+  }, [])
 
   const handleLogout = async () => {
     setLoggingOut(true)
@@ -91,11 +97,7 @@ function BaileysConnectionStatus() {
     }
   }
 
-  useEffect(() => {
-    checkStatus()
-    const iv = setInterval(checkStatus, 2500)
-    return () => clearInterval(iv)
-  }, [])
+
 
   if (status.loading) return (
     <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2">

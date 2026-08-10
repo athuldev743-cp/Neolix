@@ -75,23 +75,25 @@ const repliesApi = {
 }
 
 // ── WhatsApp ───────────────────────────────────────────────────────────────
+// ── WhatsApp ───────────────────────────────────────────────────────────────
 const waApi = {
-  status:         ()      => api.get('/whatsapp/status'),
-  logout:         ()      => api.post('/whatsapp/logout'),
-  send:           (data)  => api.post('/whatsapp/send', data),
-  sendImage:      (data)  => api.post('/whatsapp/send-image', data),
-  conversations:  ()      => api.get('/whatsapp/conversations'),
-  messages:       (phone) => api.get(`/whatsapp/messages/${phone}`),
-  incoming:       ()      => api.get('/whatsapp/incoming'),
-  respond:        (data)  => api.post('/whatsapp/respond', data),
-  aiReply:        (data)  => api.post('/whatsapp/ai-reply', data),
-  campaignCreate: (data)  => api.post('/whatsapp/campaign/create', data),
-  campaignList:   ()      => api.get('/whatsapp/campaign/list'),
-  campaignGet:    (id)    => api.get(`/whatsapp/campaign/${id}`),
-  campaignDetail: (id)    => api.get(`/whatsapp/campaign/${id}`),
-  preview:        (data)  => api.post('/whatsapp/preview', data),
-  previewBatch:   (data)  => api.post('/whatsapp/preview-batch', data),
-  launch:         (data)  => api.post('/whatsapp/launch', data),
+  getQr:            ()      => api.get('/whatsapp/qr'),       // <-- ADD THIS (used for fetching base64 QR)
+  status:           ()      => api.get('/whatsapp/status'),   // <-- Keep for basic state checks
+  logout:           ()      => api.post('/whatsapp/logout'),
+  send:             (data)  => api.post('/whatsapp/send', data),
+  sendImage:        (data)  => api.post('/whatsapp/send-image', data),
+  conversations:    ()      => api.get('/whatsapp/conversations'),
+  messages:         (phone) => api.get(`/whatsapp/messages/${phone}`),
+  incoming:         ()      => api.get('/whatsapp/incoming'),
+  respond:          (data)  => api.post('/whatsapp/respond', data),
+  aiReply:          (data)  => api.post('/whatsapp/ai-reply', data),
+  campaignCreate:   (data)  => api.post('/whatsapp/campaign/create', data),
+  campaignList:     ()      => api.get('/whatsapp/campaign/list'),
+  campaignGet:      (id)    => api.get(`/whatsapp/campaign/${id}`),
+  campaignDetail:   (id)    => api.get(`/whatsapp/campaign/${id}`),
+  preview:          (data)  => api.post('/whatsapp/preview', data),
+  previewBatch:     (data)  => api.post('/whatsapp/preview-batch', data),
+  launch:           (data)  => api.post('/whatsapp/launch', data),
 }
 
 // ── Android SIM Gateway ────────────────────────────────────────────────────
