@@ -110,14 +110,8 @@ const waApi = {
   connectionCreate: (label) => api.post("/whatsapp/connections/new", { label }),
   connectionDelete: (connId) => api.delete(`/whatsapp/connections/${connId}`),
   connectionQr: (connId) => api.get(`/whatsapp/connections/${connId}/qr`),
-  connectionPair: (connId, phone) =>
-    api.post(`/whatsapp/connections/${connId}/pair`, { phone_number: phone }),
-  connectionStatus: (connId) =>
-    api.get(`/whatsapp/connections/${connId}/status`),
-  getQr: () => api.get("/qr"),
-  status: () => api.get("/status"),
-  logout: () => api.post("/logout"),
-  send: (data) => api.post("/whatsapp/send", data),
+  connectionStatus: (connId) => api.get(`/whatsapp/connections/${connId}/status`),
+
   sendImage: (data) => api.post("/whatsapp/send-image", data),
   conversations: () => api.get("/whatsapp/conversations"),
   messages: (phone) => api.get(`/whatsapp/messages/${phone}`),

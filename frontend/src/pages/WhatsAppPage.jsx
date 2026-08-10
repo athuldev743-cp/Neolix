@@ -45,101 +45,167 @@ const MSG_TYPES = [
   { id: 'image', label: 'Image', sub: 'Image + caption', placeholder: `Hi {lead_name} - sharing our catalogue for {lead_company} following up from {campaign_info}.\nHappy to discuss! - {sender_name}`, hint: 'short 1-2 line caption for image attachment', rows: 3 },
 ]
 // ═══════════════════════════════════════════════════════════
-// BAILEYS LINK AUTH MONITOR
+// MULTI-CONNECTION MANAGER — list, disconnect, add via QR
 // ═══════════════════════════════════════════════════════════
-function BaileysConnectionStatus() {
-  const [status, setStatus] = useState({ connected: false, qr: null, loading: true })
-  const [loggingOut, setLoggingOut] = useState(false)
+function WhatsAppConnectionsManager() {
+  const [connections, setConnections] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [disconnectingId, setDisconnectingId] = useState(null)
+
+  // Add-flow state
+  const [adding, setAdding] = useState(false)
+  const [pendingConnId, setPendingConnId] = useState(null)
+  const [qr, setQr] = useState(null)
+  const pollRef = useRef(null)
   const lastQrRef = useRef(null)
 
-  const checkStatus = async () => {
+  const loadConnections = async () => {
     try {
-      // MUST poll /qr endpoint continuously to get new QR iterations
-      const { data } = await waApi.getQr()
-
-      if (data?.status === 'connected' || data?.connected) {
-        setStatus({ connected: true, qr: null, loading: false })
-        lastQrRef.current = null
-        return
-      }
-
-      if (data?.qr && data.qr !== lastQrRef.current) {
-        lastQrRef.current = data.qr
-        setStatus({ connected: false, qr: data.qr, loading: false })
-      } else if (!data?.qr && !lastQrRef.current) {
-        setStatus(p => ({ ...p, connected: false, loading: false }))
-      }
-    } catch (err) {
-      console.error('QR poll error:', err)
-      setStatus(p => ({ ...p, loading: false }))
+      const { data } = await waApi.connections()
+      setConnections(data?.connections || [])
+    } catch {
+      toast.error('Failed to load connections')
+    } finally {
+      setLoading(false)
     }
   }
 
   useEffect(() => {
-    checkStatus()
-    // Poll every 2 seconds to capture refreshed QR codes before 428 timeouts
-    const iv = setInterval(checkStatus, 2000)
+    loadConnections()
+    const iv = setInterval(loadConnections, 5000)
     return () => clearInterval(iv)
   }, [])
 
-  const handleLogout = async () => {
-    setLoggingOut(true)
+  const stopPolling = () => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = null
+  }
+
+  const pollQr = (connId) => {
+    lastQrRef.current = null
+    pollRef.current = setInterval(async () => {
+      try {
+        const { data } = await waApi.connectionQr(connId)
+        if (data?.status === 'connected') {
+          stopPolling()
+          setAdding(false)
+          setPendingConnId(null)
+          setQr(null)
+          toast.success('WhatsApp number connected!')
+          loadConnections()
+          return
+        }
+        if (data?.qr && data.qr !== lastQrRef.current) {
+          lastQrRef.current = data.qr
+          setQr(data.qr)
+        }
+      } catch (err) {
+        console.error('QR poll error:', err)
+      }
+    }, 2000)
+  }
+
+  const startAddNumber = async () => {
+    setAdding(true)
+    setQr(null)
     try {
-      await waApi.logout()
-      lastQrRef.current = null
-      setStatus({ connected: false, qr: null, loading: false })
-      toast.success('Disconnected — scan a new QR to link a different number')
-      setTimeout(checkStatus, 1000)
+      const { data } = await waApi.connectionCreate(`WhatsApp ${connections.length + 1}`)
+      setPendingConnId(data.connection_id)
+      pollQr(data.connection_id)
     } catch {
-      toast.error('Failed to disconnect')
-    } finally {
-      setLoggingOut(false)
+      toast.error('Failed to start new connection')
+      setAdding(false)
     }
   }
 
+  const cancelAdd = () => {
+    stopPolling()
+    setAdding(false)
+    setPendingConnId(null)
+    setQr(null)
+  }
 
+  const disconnectNumber = async (connId) => {
+    setDisconnectingId(connId)
+    try {
+      await waApi.connectionDelete(connId)
+      toast.success('Disconnected')
+      loadConnections()
+    } catch {
+      toast.error('Failed to disconnect')
+    } finally {
+      setDisconnectingId(null)
+    }
+  }
 
-  if (status.loading) return (
-    <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2">
-      <Loader2 size={13} className="animate-spin text-slate-800" /> Fetching pipeline anchor authorization state...
-    </div>
-  )
-
-  if (status.connected) return (
-    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-emerald-800">
-      <div className="flex items-center gap-3">
-        <div className="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0" />
-        <div className="text-xs font-bold">Baileys API Service Connected Natively</div>
-      </div>
-      <button
-        onClick={handleLogout}
-        disabled={loggingOut}
-        className="text-[11px] font-bold text-emerald-700 bg-white border border-emerald-300 rounded-lg px-2.5 py-1.5 hover:bg-emerald-100 transition-colors disabled:opacity-40"
-      >
-        {loggingOut ? 'Disconnecting…' : 'Disconnect / Switch Number'}
-      </button>
-    </div>
-  )
+  useEffect(() => () => stopPolling(), [])
 
   return (
-    <div className="p-5 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-5">
-      <div className="space-y-1 text-center md:text-left">
-        <h4 className="text-xs font-black uppercase text-amber-800 tracking-wider">WhatsApp Session Authentication Required</h4>
-        <p className="text-xs text-amber-700 max-w-md">Tokens refresh every 20 seconds. Open WhatsApp ──► Linked Devices ──► Scan immediately upon rotation changes.</p>
-      </div>
-      <div className="bg-white p-3 rounded-2xl border flex items-center justify-center flex-shrink-0 w-36 h-36">
-        {status.qr ? (
-          <img 
-            src={status.qr.startsWith('data:') ? status.qr : `data:image/png;base64,${status.qr}`} 
-            alt="QR Stream" 
-            className="w-full h-full object-contain" 
-          />
-        ) : (
-          <div className="text-center space-y-1 text-slate-400 text-[10px]">
-            <Loader2 size={14} className="animate-spin mx-auto text-amber-600" /> Generating lease...
-          </div>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold text-slate-700">Connected Numbers</h3>
+        {!adding && (
+          <button onClick={startAddNumber} className="btn-primary text-xs py-1.5 px-3">
+            <Plus size={14} /> Add Number
+          </button>
         )}
       </div>
+
+      {loading && (
+        <div className="flex justify-center py-6"><Loader2 size={18} className="animate-spin text-emerald-500" /></div>
+      )}
+
+      {!loading && connections.length === 0 && !adding && (
+        <div className="p-5 bg-slate-50 border border-slate-200 rounded-2xl text-center text-sm text-slate-400">
+          No WhatsApp numbers connected yet.
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {connections.map(c => (
+          <div key={c.connection_id} className="p-4 bg-white border border-slate-200 rounded-2xl flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-2 h-2 rounded-full flex-shrink-0 ${c.connected ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+              <div>
+                <p className="text-sm font-bold text-slate-800">{c.label || 'WhatsApp'}</p>
+                <p className="text-xs text-slate-400">
+                  {c.phone_number ? `+${c.phone_number}` : c.status || 'not linked'}
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => disconnectNumber(c.connection_id)}
+              disabled={disconnectingId === c.connection_id}
+              className="text-[11px] font-bold text-red-600 bg-white border border-red-200 rounded-lg px-2.5 py-1.5 hover:bg-red-50 transition-colors disabled:opacity-40"
+            >
+              {disconnectingId === c.connection_id ? 'Disconnecting…' : 'Disconnect'}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {adding && (
+        <div className="p-5 bg-amber-50/60 border border-amber-200 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-5">
+          <div className="space-y-1 text-center md:text-left">
+            <h4 className="text-xs font-black uppercase text-amber-800 tracking-wider">Scan to Link New Number</h4>
+            <p className="text-xs text-amber-700 max-w-md">Open WhatsApp ──► Linked Devices ──► Link a Device, then scan.</p>
+            <button onClick={cancelAdd} className="text-[11px] font-bold text-slate-500 underline mt-1">Cancel</button>
+          </div>
+          <div className="bg-white p-3 rounded-2xl border flex items-center justify-center flex-shrink-0 w-36 h-36">
+            {qr ? (
+              <img
+                src={qr.startsWith('data:') ? qr : `data:image/png;base64,${qr}`}
+                alt="QR"
+                className="w-full h-full object-contain"
+              />
+            ) : (
+              <div className="text-center space-y-1 text-slate-400 text-[10px]">
+                <Loader2 size={14} className="animate-spin mx-auto text-amber-600" /> Generating QR...
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -166,7 +232,7 @@ function CampaignList({ onCreate, onDetail }) {
 
   return (
     <div className="space-y-5">
-      <BaileysConnectionStatus />
+      <WhatsAppConnectionsManager />
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-slate-900">WhatsApp Engine Outreach</h2>
