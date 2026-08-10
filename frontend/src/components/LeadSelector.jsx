@@ -212,7 +212,12 @@ function UploadPanel({ onAdded }) {
     setLoading(true)
     try {
       const { data } = await leadsApi.uploadFile(file)
-      toast.success('Leads extracted from file asset dataset')
+      const count = data.lead_ids?.length || 0
+      if (count === 0) {
+        toast.error('No usable phone numbers or emails found in this file')
+      } else {
+        toast.success(`${count} lead${count !== 1 ? 's' : ''} extracted and added`)
+      }
       onAdded(data.lead_ids || [])
     } catch {
        toast.error('Upload parser file error')
