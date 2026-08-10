@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Inbox, RefreshCw, Plus, Loader2, ChevronLeft,
-  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight, Mic, HelpCircle, Send
+  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight, Mic, HelpCircle, Send, Copy
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi, repliesApi, api } from '../services/api'
@@ -508,6 +508,12 @@ function CampaignCreate({ onBack, onDone }) {
   ))
 }
 
+const applyToAllDrafts = (msgType) => {
+  const value = drafts[draftIdx]?.messages?.[msgType] || ''
+  setDrafts(prev => prev.map(d => ({ ...d, messages: { ...d.messages, [msgType]: value } })))
+  toast.success(`Applied to all ${drafts.length} leads`)
+}
+
  const removeDraft = () => {
   setDrafts(prev => {
     const next = prev.filter((_, i) => i !== draftIdx)
@@ -625,15 +631,24 @@ function CampaignCreate({ onBack, onDone }) {
         const meta = TYPE_META[typeId] || { label: typeId, color: 'bg-slate-400' }
         return (
           <div key={typeId} className="card p-5 space-y-3">
-            <div className="flex items-center gap-2">
-              <span className={`w-2.5 h-2.5 rounded-full ${meta.color}`} />
-              <label className="field-label mb-0">{meta.label}</label>
-            </div>
-            <textarea
-              className="textarea h-32 text-sm"
-              value={d.messages?.[typeId] || ''}
-              onChange={e => updateDraftMessage(typeId, e.target.value)}
-            />
+  <div className="flex items-center justify-between">
+    <div className="flex items-center gap-2">
+      <span className={`w-2.5 h-2.5 rounded-full ${meta.color}`} />
+      <label className="field-label mb-0">{meta.label}</label>
+    </div>
+    <button
+      type="button"
+      onClick={() => applyToAllDrafts(typeId)}
+      className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-1"
+    >
+      <Copy size={12} /> Apply to all {drafts.length} leads
+    </button>
+  </div>
+  <textarea
+    className="textarea h-32 text-sm"
+    value={d.messages?.[typeId] || ''}
+    onChange={e => updateDraftMessage(typeId, e.target.value)}
+  />
  
             {/* WhatsApp bubble preview */}
             <div className="rounded-2xl border border-slate-200 bg-[#e5ddd5] p-4">
