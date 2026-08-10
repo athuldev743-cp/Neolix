@@ -77,9 +77,9 @@ const repliesApi = {
 // ── WhatsApp ───────────────────────────────────────────────────────────────
 // ── WhatsApp ───────────────────────────────────────────────────────────────
 const waApi = {
-  getQr:            ()      => api.get('/whatsapp/qr'),       // <-- ADD THIS (used for fetching base64 QR)
-  status:           ()      => api.get('/whatsapp/status'),   // <-- Keep for basic state checks
-  logout:           ()      => api.post('/whatsapp/logout'),
+  getQr:            ()      => api.get('/qr'),              // <-- FIX THIS LINE (change '/whatsapp/qr' to '/qr')
+  status:           ()      => api.get('/status'),          // <-- Change to '/status' if hitting the Node server
+  logout:           ()      => api.post('/logout'),
   send:             (data)  => api.post('/whatsapp/send', data),
   sendImage:        (data)  => api.post('/whatsapp/send-image', data),
   conversations:    ()      => api.get('/whatsapp/conversations'),
