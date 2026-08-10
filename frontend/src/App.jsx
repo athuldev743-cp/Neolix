@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
-import { Toaster } from 'react-hot-toast';
+import { Toaster, toast } from 'react-hot-toast';
 import { useState, useEffect, useCallback, createContext } from 'react';
 import { Loader2 } from 'lucide-react';
 import Layout from './components/layout/Layout';
@@ -41,17 +41,20 @@ function AppRoutes() {
     }
   }, []);
 
-  const refreshProfile = useCallback(async () => {
-    if (!activeUserEmail) { setLoading(false); return; }
-    try {
-      const { data } = await profileApi.get();
-      setProfile(data);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, [activeUserEmail]);
+const refreshProfile = useCallback(async () => {
+  if (!activeUserEmail) { setLoading(false); return null; }
+  try {
+    const { data } = await profileApi.get();
+    setProfile(data);
+    return data;
+  } catch (e) {
+    console.error(e);
+    toast.error('Could not refresh profile — try reloading the page');
+    return null;
+  } finally {
+    setLoading(false);
+  }
+}, [activeUserEmail]);
 
   useEffect(() => { refreshProfile(); }, [refreshProfile]);
 

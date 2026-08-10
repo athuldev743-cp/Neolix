@@ -280,22 +280,28 @@ export default function SettingsPage() {
   const set = (k, v) => { setForm(p => ({ ...p, [k]: v })); setSaved(false) }
 
   const saveProfile = async () => {
-    setSaving(true)
-    try {
-      await profileApi.update(form)
-      await refreshProfile()
-      toast.success('Profile saved!')
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
-      const filled = !!(form.company_name?.trim() && form.product_description?.trim())
-      if (filled) navigate('/')
-    } catch (err) {
-      console.error('Save error:', err)
-      toast.error('Failed to save profile')
-    } finally {
-      setSaving(false)
+  setSaving(true)
+  try {
+    await profileApi.update(form)
+    const freshProfile = await refreshProfile()
+    toast.success('Profile saved!')
+    setSaved(true)
+    setTimeout(() => setSaved(false), 3000)
+
+    const filled = !!(freshProfile?.company_name?.trim() && freshProfile?.product_description?.trim())
+    if (filled) {
+      // let React finish committing the updated context before routing
+      setTimeout(() => navigate('/'), 0)
+    } else if (freshProfile === null) {
+      toast.error('Saved, but could not confirm — please refresh the page')
     }
+  } catch (err) {
+    console.error('Save error:', err)
+    toast.error('Failed to save profile')
+  } finally {
+    setSaving(false)
   }
+}
 
   const triggerGoogleOAuth = () => {
     window.location.href = `${API_BASE}/auth/google/login`
