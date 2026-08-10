@@ -52,7 +52,29 @@ function BaileysConnectionStatus() {
   const [loggingOut, setLoggingOut] = useState(false)
   const lastQrRef = useRef(null)
 
-  const checkStatus = async () => { /* unchanged */ }
+  const checkStatus = async () => {
+    try {
+      // 1. Call GET /qr (or waApi.getQr()) instead of waApi.status()
+      const { data } = await waApi.getQr()
+
+      // 2. Handle connected state from /qr response
+      if (data?.status === 'connected' || data?.connected) {
+        setStatus({ connected: true, qr: null, loading: false })
+        lastQrRef.current = null
+        return
+      }
+
+      // 3. Update QR state when a new QR code string arrives
+      if (data?.qr && data.qr !== lastQrRef.current) {
+        lastQrRef.current = data.qr
+        setStatus({ connected: false, qr: data.qr, loading: false })
+      } else if (!data?.qr && !lastQrRef.current) {
+        setStatus(p => ({ ...p, connected: false, loading: false }))
+      }
+    } catch {
+      setStatus(p => ({ ...p, loading: false }))
+    }
+  }
 
   const handleLogout = async () => {
     setLoggingOut(true)
@@ -75,7 +97,11 @@ function BaileysConnectionStatus() {
     return () => clearInterval(iv)
   }, [])
 
-  if (status.loading) return <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2"><Loader2 size={13} className="animate-spin text-slate-800" /> Fetching pipeline anchor authorization state...</div>
+  if (status.loading) return (
+    <div className="p-4 bg-slate-50 rounded-2xl border text-xs text-slate-400 flex items-center gap-2">
+      <Loader2 size={13} className="animate-spin text-slate-800" /> Fetching pipeline anchor authorization state...
+    </div>
+  )
 
   if (status.connected) return (
     <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-emerald-800">
@@ -101,15 +127,20 @@ function BaileysConnectionStatus() {
       </div>
       <div className="bg-white p-3 rounded-2xl border flex items-center justify-center flex-shrink-0 w-36 h-36">
         {status.qr ? (
-          <img src={`data:image/png;base64,${status.qr.replace(/^data:image\/[a-z]+;base64,/, '')}`} alt="QR Stream" className="w-full h-full object-contain" />
+          <img 
+            src={status.qr.startsWith('data:') ? status.qr : `data:image/png;base64,${status.qr}`} 
+            alt="QR Stream" 
+            className="w-full h-full object-contain" 
+          />
         ) : (
-          <div className="text-center space-y-1 text-slate-400 text-[10px]"><Loader2 size={14} className="animate-spin mx-auto text-amber-600" /> Generating lease...</div>
+          <div className="text-center space-y-1 text-slate-400 text-[10px]">
+            <Loader2 size={14} className="animate-spin mx-auto text-amber-600" /> Generating lease...
+          </div>
         )}
       </div>
     </div>
   )
 }
-
 // ═══════════════════════════════════════════════════════════
 // CAMPAIGN LIST WORKSPACE VIEW
 // ═══════════════════════════════════════════════════════════
