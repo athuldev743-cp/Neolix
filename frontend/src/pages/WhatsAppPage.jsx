@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import {
   Inbox, RefreshCw, Plus, Loader2, ChevronLeft,
-  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight, Mic, HelpCircle, Send, Copy
+  Eye, Zap, X, Check, CheckCheck, Search, Reply, MessageSquare, Sparkles, Image, FileText, Edit3, Save, ArrowRight, Mic, HelpCircle, Send, Copy, AlertTriangle, CircleCheck, Clock
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi, repliesApi, api } from '../services/api'
@@ -266,10 +266,18 @@ function CampaignList({ onCreate, onDetail }) {
                 <div className="h-1.5 bg-slate-100 rounded-full w-40">
                   <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${pct}%` }} />
                 </div>
+                {c.status === 'failed' && c.last_error && (
+                  <p className="text-[11px] text-red-500 mt-1.5 flex items-center gap-1 truncate max-w-md">
+                    <AlertTriangle size={11} className="flex-shrink-0" /> {c.last_error}
+                  </p>
+                )}
               </div>
               <div className="flex gap-4 text-right text-xs">
                 <div><p className="font-bold text-slate-900">{c.total_leads}</p><p className="text-slate-400">leads</p></div>
                 <div><p className="font-bold text-emerald-600">{c.sent}</p><p className="text-slate-400">sent</p></div>
+                {c.failed > 0 && (
+                  <div><p className="font-bold text-red-500">{c.failed}</p><p className="text-slate-400">failed</p></div>
+                )}
               </div>
             </div>
           )
@@ -372,6 +380,19 @@ function CampaignDetail({ id, onBack }) {
         </div>
       </div>
 
+      {/* Campaign-level failure banner — surfaces background-task crashes
+          (e.g. no WhatsApp connected, DB errors) that aren't tied to any
+          single lead row below. */}
+      {data.status === 'failed' && data.last_error && (
+        <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2.5">
+          <AlertTriangle size={15} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-bold text-red-700">Campaign failed</p>
+            <p className="text-xs text-red-600 mt-0.5">{data.last_error}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-3">
         <div className="card p-4"><strong>{data.total_leads}</strong><p className="text-xs text-slate-400">Target Count</p></div>
         <div className="card p-4 text-emerald-600"><strong>{data.sent}</strong><p className="text-xs text-slate-400">Dispatched</p></div>
@@ -411,12 +432,24 @@ function CampaignDetail({ id, onBack }) {
               <tr key={i} className="border-t hover:bg-slate-50/60 transition-colors">
                 <td className="p-3 font-medium">{l.company || l.name || '-'}</td>
                 <td className="p-3 text-slate-500">+{l.phone}</td>
-                <td className="p-3"><span className={`text-xs font-bold uppercase ${sc[l.status] || 'text-slate-400'}`}>{l.status}</span></td>
+                <td className="p-3">
+                  <span className={`text-xs font-bold uppercase flex items-center gap-1 ${sc[l.status] || 'text-slate-400'}`}>
+                    {l.status === 'sent' && <CircleCheck size={12} />}
+                    {l.status === 'failed' && <AlertTriangle size={12} />}
+                    {l.status === 'pending' && <Clock size={12} />}
+                    {l.status}
+                  </span>
+                  {l.status === 'failed' && l.error && (
+                    <p className="text-[10px] text-red-400 mt-0.5 max-w-xs truncate" title={l.error}>{l.error}</p>
+                  )}
+                </td>
                 <td className="p-3">
                   {l.status === 'draft' ? (
                     <button onClick={() => openInlineEditor(l)} className="text-[11px] bg-slate-900 hover:bg-slate-800 text-slate-100 rounded-lg py-1 px-2.5 font-bold flex items-center gap-1 transition-all">
                       <Eye size={11} /> Review Draft
                     </button>
+                  ) : l.status === 'failed' ? (
+                    <span className="text-[11px] font-medium text-red-500 italic">Not delivered</span>
                   ) : (
                     <span className="text-[11px] font-medium text-slate-400 italic">Locked for Send</span>
                   )}
