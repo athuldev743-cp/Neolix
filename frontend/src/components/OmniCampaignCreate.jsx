@@ -561,10 +561,11 @@ export default function OmniCampaignCreate({ onBack, onDone }) {
   useEffect(() => {
     const init = async () => {
       try {
-        const [profRes, waRes] = await Promise.allSettled([profileApi.get(), waApi.status()])
-        const prof    = profRes.status === 'fulfilled' ? profRes.value.data : null
-        const hasEmail = !!prof?.google_oauth?.connected_email
-        const hasWA   = waRes.status === 'fulfilled' && !!waRes.value.data?.connected
+        const [profRes, waRes] = await Promise.allSettled([profileApi.get(), waApi.connections()])
+const prof    = profRes.status === 'fulfilled' ? profRes.value.data : null
+const hasEmail = !!prof?.google_oauth?.connected_email
+const waConns  = waRes.status === 'fulfilled' ? (waRes.value.data?.connections || []) : []
+const hasWA    = waConns.some(c => c.connected)
         setGateways({ email: hasEmail, whatsapp: hasWA, sms: true })
         setProfile(prof)
         const defaults = ['sms', hasWA && 'whatsapp', hasEmail && 'email'].filter(Boolean)
