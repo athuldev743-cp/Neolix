@@ -22,6 +22,29 @@ function normalizePhone(phone) {
   return digits
 }
 
+// ── Shared helper — turns the `selected` Map into what the backends expect ──
+// Complete (DB) leads → lead_ids: [1, 2, 3]
+// Partial (inline) leads → inline_leads: [{ email, phone, contact_name, company_name, business_details }]
+// Import this in WhatsAppPage.jsx / EmailPage.jsx / omni create screens at launch/preview time.
+export function splitLeadsForLaunch(selected) {
+  const lead_ids = []
+  const inline_leads = []
+  selected.forEach((lead) => {
+    if (lead.is_partial) {
+      inline_leads.push({
+        email: lead.email || '',
+        phone: lead.phone || '',
+        contact_name: lead.contact_name || '',
+        company_name: lead.company_name || '',
+        business_details: lead.business_details || '',
+      })
+    } else {
+      lead_ids.push(lead.id)
+    }
+  })
+  return { lead_ids, inline_leads }
+}
+
 // ── Smart Spreadsheet Paste Ingestion Panel ──────────────────────────────────
 function SmartInsertionPanel({ onAdded, requiredChannels }) {
   const [rows, setRows] = useState([{ phone: '', email: '', name: '', company: '', businessDesc: '' }])
@@ -102,6 +125,7 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
     setLoading(true)
     let processedCount = 0
     const aggregatedIds = []
+    const aggregatedPartials = []
 
     try {
       await Promise.all(
@@ -117,14 +141,16 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
           if (needsPhone) payload.phone = phone
           if (needsEmail) {
             payload.email = email
-          } else if (needsPhone) {
-            payload.email = `${phone}@neolix-channel.local`
           }
-          
+          // NOTE: synthetic `${phone}@neolix-channel.local` fallback intentionally removed.
+          // Phone-only rows now go through with no email field — leads.py's
+          // is_complete_lead() decides complete vs partial, not this panel.
+
           try {
             const { data } = await leadsApi.addSingle(payload)
             if (data.lead_ids?.length) aggregatedIds.push(...data.lead_ids)
             else if (data.id || data.lead_id) aggregatedIds.push(data.id || data.lead_id)
+            if (data.partial_leads?.length) aggregatedPartials.push(...data.partial_leads)
             processedCount++
           } catch (e) {
             console.error('Database insertion error:', e)
@@ -132,8 +158,8 @@ function SmartInsertionPanel({ onAdded, requiredChannels }) {
         })
       )
 
-      if (aggregatedIds.length > 0) {
-        onAdded(aggregatedIds)
+      if (aggregatedIds.length > 0 || aggregatedPartials.length > 0) {
+        onAdded(aggregatedIds, aggregatedPartials)
         toast.success(`Successfully registered ${processedCount} new contacts!`)
       }
       setRows([{ phone: '', email: '', name: '', company: '', businessDesc: '' }])
@@ -212,13 +238,18 @@ function UploadPanel({ onAdded }) {
     setLoading(true)
     try {
       const { data } = await leadsApi.uploadFile(file)
-      const count = data.lead_ids?.length || 0
-      if (count === 0) {
+      const idCount = data.lead_ids?.length || 0
+      const partialCount = data.partial_leads?.length || 0
+      const total = idCount + partialCount
+      if (total === 0) {
         toast.error('No usable phone numbers or emails found in this file')
       } else {
-        toast.success(`${count} lead${count !== 1 ? 's' : ''} extracted and added`)
+        toast.success(
+          `${total} lead${total !== 1 ? 's' : ''} extracted and added` +
+          (partialCount ? ` (${partialCount} partial — missing name/company/details)` : '')
+        )
       }
-      onAdded(data.lead_ids || [])
+      onAdded(data.lead_ids || [], data.partial_leads || [])
     } catch {
        toast.error('Upload parser file error')
      } finally {
@@ -270,7 +301,7 @@ function ScanPanel({ onAdded, requiredChannels }) {
       const { data } = await leadsApi.scanCard(b64)
       if (data.total_found > 0 || data.phone || data.email) {
         toast.success('Card data extracted accurately')
-        onAdded(data.lead_ids || [])
+        onAdded(data.lead_ids || [], data.partial_leads || [])
       } else {
          toast.error(isPhoneRequired ? 'No valid mobile phone number found' : 'No valid email address found')
        }
@@ -317,10 +348,9 @@ export default function LeadSelector({ selected, onChange, requiredChannels = 'e
     if (!query.trim()) return
     setSearching(true)
     try {
-      // ✅ Pass active channels configuration layout masks straight to your updated database query filters
       const activeContext = isPhoneRequired ? 'whatsapp' : 'email'
       const { data } = await leadsApi.search(query, 50, activeContext, requiredChannels)
-            
+
       let leads = data.leads || data || []
       setResults(leads)
       if (leads.length === 0) toast('No uncontacted leads match your active channel requirements!')
@@ -338,15 +368,19 @@ export default function LeadSelector({ selected, onChange, requiredChannels = 'e
     onChange(next)
   }, [selected, onChange])
 
-  const handleAdded = (ids) => {
+  // Accepts complete DB leads (ids) and partial leads (full objects, no id).
+  const handleAdded = (ids = [], partials = []) => {
     const next = new Map(selected)
     ids.forEach(id => { if (!next.has(id)) next.set(id, { id }) })
+    partials.forEach(lead => {
+      const key = `partial_${crypto.randomUUID()}`
+      next.set(key, { ...lead, id: key, is_partial: true })
+    })
     onChange(next)
   }
 
   const selectAll = () => {
     const next = new Map(selected)
-    // ✅ Re-clones object properties correctly to prevent template injection errors later
     results.forEach(l => {
       next.set(l.id, {
         id: l.id,

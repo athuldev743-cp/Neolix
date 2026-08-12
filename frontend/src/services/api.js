@@ -66,13 +66,14 @@ const leadsApi = {
 };
 
 // ── Campaigns ──────────────────────────────────────────────────────────────
+// ── Campaigns ──────────────────────────────────────────────────────────────
 const campaignApi = {
   create: (data) => api.post("/campaigns/create", data),
   list: () => api.get("/campaigns/list"),
   get: (id) => api.get(`/campaigns/${id}`),
   preview: (data) => api.post("/campaigns/preview", data),
-  previewBatch: (campaign_info, lead_ids) =>
-    api.post("/campaigns/preview-batch", { campaign_info, lead_ids }),
+  previewBatch: (campaign_info, lead_ids, inline_leads = [], template_id = "navy") =>
+    api.post("/campaigns/preview-batch", { campaign_info, lead_ids, inline_leads, template_id }),
   launch: (data) => api.post("/campaigns/launch", data),
 };
 

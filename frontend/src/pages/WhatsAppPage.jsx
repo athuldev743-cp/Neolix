@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { waApi, repliesApi, api } from '../services/api'
-import LeadSelector from '../components/LeadSelector'
+import LeadSelector, { splitLeadsForLaunch } from '../components/LeadSelector'
 import { useUnreadReplies } from '../hooks/useUnreadReplies'
 import { profileApi } from '../services/api'
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -610,21 +610,26 @@ function CampaignCreate({ onBack, onDone }) {
   })
 
   // ── Generate Preview (batch, for focused type) ──────────────────────────
- const generatePreview = async () => {
+// Remove: const leadIds = Array.from(selected.keys())
+
+const generatePreview = async () => {
   if (!form.campaign_name.trim()) return toast.error('Enter campaign name')
   if (selected.size === 0) return toast.error('Select at least one lead')
- 
+
   const enabledList = Array.from(activeTypes)
   for (const type of enabledList) {
     if (type !== 'image' && !messages[type]?.trim())
       return toast.error(`Add a template for ${type.toUpperCase()}`)
   }
- 
+
+  const { lead_ids, inline_leads } = splitLeadsForLaunch(selected)   // ← NEW
+
   setGeneratingPreview(true)
   try {
     const { data } = await waApi.previewBatch({
       campaign_info: form.campaign_info,
-      lead_ids: leadIds.map(id => parseInt(id, 10) || id),
+      lead_ids,           // ← was leadIds.map(parseInt...)
+      inline_leads,        // ← NEW
       message_types: enabledList,
       templates: {
         hook: messages.hook || '',

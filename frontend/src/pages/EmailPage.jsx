@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { campaignApi, repliesApi, api } from '../services/api'
-import LeadSelector from '../components/LeadSelector'
+import LeadSelector, { splitLeadsForLaunch } from '../components/LeadSelector'
 import { useUnreadReplies } from '../hooks/useUnreadReplies'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -225,22 +225,26 @@ function CampaignCreate({ onBack, onDone }) {
   const [launching, setLaunching] = useState(false)
 
   const generatePreview = async () => {
-    if (!form.campaign_name || !form.campaign_info) {
-      toast.error('Name and context/info are required'); return
-    }
-    if (selected.size === 0) { toast.error('Select target leads'); return }
-
-    setGenerating(true)
-    try {
-      const { data } = await campaignApi.previewBatch(form.campaign_info, Array.from(selected.keys()), form.template_id)
-      setDrafts(data.drafts || [])
-      toast.success('Drafts generated — review and edit below')
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Draft generation failed')
-    } finally {
-      setGenerating(false)
-    }
+  if (!form.campaign_name || !form.campaign_info) {
+    toast.error('Name and context/info are required'); return
   }
+  if (selected.size === 0) { toast.error('Select target leads'); return }
+
+  const { lead_ids, inline_leads } = splitLeadsForLaunch(selected)   // ← NEW
+
+  setGenerating(true)
+  try {
+    const { data } = await campaignApi.previewBatch(
+      form.campaign_info, lead_ids, inline_leads, form.template_id   // ← inline_leads inserted
+    )
+    setDrafts(data.drafts || [])
+    toast.success('Drafts generated — review and edit below')
+  } catch (e) {
+    toast.error(e.response?.data?.detail || 'Draft generation failed')
+  } finally {
+    setGenerating(false)
+  }
+}
 
   const updateDraft = (idx, field, value) => {
     setDrafts(prev => prev.map((d, i) => i === idx ? { ...d, [field]: value } : d))
