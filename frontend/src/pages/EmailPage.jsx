@@ -377,6 +377,7 @@ function CampaignCreate({ onBack, onDone }) {
   }
 
   // ── Setup screen ────────────────────────────────────────
+    // ── Setup screen ────────────────────────────────────────
   return (
     <div>
       <button onClick={onBack} className="btn-ghost -ml-2 mb-4"><ChevronLeft size={16} /> Back</button>
@@ -389,26 +390,28 @@ function CampaignCreate({ onBack, onDone }) {
             value={form.campaign_name} onChange={e => setForm(p => ({...p, campaign_name: e.target.value}))} />
         </div>
 
-        <div className="card p-5 space-y-4 max-w-2xl">
-  <div>
-    <label className="field-label">Campaign Name</label>
-    <input className="input" placeholder="e.g. Startup Fest Follow-up"
-      value={form.campaign_name} onChange={e => setForm(p => ({...p, campaign_name: e.target.value}))} />
-  </div>
+        <div>
+          <label className="flex items-center gap-2 cursor-pointer mb-2">
+            <input
+              type="checkbox"
+              checked={form.is_cold_outreach}
+              onChange={e => setForm(p => ({...p, is_cold_outreach: e.target.checked}))}
+            />
+            <span className="field-label mb-0">Cold Outreach (no prior contact — uses our AI opener model)</span>
+          </label>
 
-  {/* ← THIS is the block you're replacing, right here */}
-  <div>
-    <label className="field-label">Campaign Context / AI Prompt</label>
-    ...
-  </div>
-  {/* ← replace everything above with the new checkbox version */}
-
-  <TemplatePicker selected={form.template_id} onSelect={id => setForm(p => ({...p, template_id: id}))} />
-  <LeadSelector selected={selected} onChange={setSelected} />
-  <button onClick={generatePreview} disabled={generating} className="btn-primary w-full mt-4">
-    ...
-  </button>
-</div>
+          {!form.is_cold_outreach && (
+            <>
+              <label className="field-label">Campaign Context / AI Prompt</label>
+              <textarea className="textarea h-24" placeholder="e.g. We met at the Startup Fest. You were interested in our automated lead generation system."
+                value={form.campaign_info} onChange={e => setForm(p => ({...p, campaign_info: e.target.value}))} />
+              <p className="text-xs text-slate-400 mt-1">The AI will use this context to write a natural, professional email for every lead.</p>
+            </>
+          )}
+          {form.is_cold_outreach && (
+            <p className="text-xs text-slate-400">No prior meeting context needed — each email opener is generated from the lead's company, industry, and location using our fine-tuned model.</p>
+          )}
+        </div>
 
         <TemplatePicker selected={form.template_id} onSelect={id => setForm(p => ({...p, template_id: id}))} />
 
