@@ -217,34 +217,40 @@ function CampaignCreate({ onBack, onDone }) {
     campaign_name: '',
     campaign_info: '',
     daily_limit: 100,
-    template_id: 'navy'
+    template_id: 'navy',
+    is_cold_outreach: false,   // ← NEW
   })
   const [selected, setSelected] = useState(new Map())
-  const [drafts, setDrafts] = useState(null) // null = no preview yet
+  const [drafts, setDrafts] = useState(null)
   const [generating, setGenerating] = useState(false)
   const [launching, setLaunching] = useState(false)
 
   const generatePreview = async () => {
-  if (!form.campaign_name || !form.campaign_info) {
-    toast.error('Name and context/info are required'); return
-  }
-  if (selected.size === 0) { toast.error('Select target leads'); return }
+    if (!form.campaign_name) {
+      toast.error('Campaign name is required'); return
+    }
+    if (!form.is_cold_outreach && !form.campaign_info) {
+      toast.error('Context/info is required (or switch to Cold Outreach mode)'); return
+    }
+    if (selected.size === 0) { toast.error('Select target leads'); return }
 
-  const { lead_ids, inline_leads } = splitLeadsForLaunch(selected)   // ← NEW
+    const { lead_ids, inline_leads } = splitLeadsForLaunch(selected)
 
-  setGenerating(true)
-  try {
-    const { data } = await campaignApi.previewBatch(
-      form.campaign_info, lead_ids, inline_leads, form.template_id   // ← inline_leads inserted
-    )
-    setDrafts(data.drafts || [])
-    toast.success('Drafts generated — review and edit below')
-  } catch (e) {
-    toast.error(e.response?.data?.detail || 'Draft generation failed')
-  } finally {
-    setGenerating(false)
+    setGenerating(true)
+    try {
+      const { data } = await campaignApi.previewBatch(
+        form.is_cold_outreach ? '' : form.campaign_info,
+        lead_ids, inline_leads, form.template_id
+      )
+      setDrafts(data.drafts || [])
+      toast.success('Drafts generated — review and edit below')
+    } catch (e) {
+      toast.error(e.response?.data?.detail || 'Draft generation failed')
+    } finally {
+      setGenerating(false)
+    }
   }
-}
+
 
   const updateDraft = (idx, field, value) => {
     setDrafts(prev => prev.map((d, i) => i === idx ? { ...d, [field]: value } : d))
@@ -383,12 +389,26 @@ function CampaignCreate({ onBack, onDone }) {
             value={form.campaign_name} onChange={e => setForm(p => ({...p, campaign_name: e.target.value}))} />
         </div>
 
-        <div>
-          <label className="field-label">Campaign Context / AI Prompt</label>
-          <textarea className="textarea h-24" placeholder="e.g. We met at the Startup Fest. You were interested in our automated lead generation system."
-            value={form.campaign_info} onChange={e => setForm(p => ({...p, campaign_info: e.target.value}))} />
-          <p className="text-xs text-slate-400 mt-1">The AI will use this context to write a natural, professional email for every lead.</p>
-        </div>
+        <div className="card p-5 space-y-4 max-w-2xl">
+  <div>
+    <label className="field-label">Campaign Name</label>
+    <input className="input" placeholder="e.g. Startup Fest Follow-up"
+      value={form.campaign_name} onChange={e => setForm(p => ({...p, campaign_name: e.target.value}))} />
+  </div>
+
+  {/* ← THIS is the block you're replacing, right here */}
+  <div>
+    <label className="field-label">Campaign Context / AI Prompt</label>
+    ...
+  </div>
+  {/* ← replace everything above with the new checkbox version */}
+
+  <TemplatePicker selected={form.template_id} onSelect={id => setForm(p => ({...p, template_id: id}))} />
+  <LeadSelector selected={selected} onChange={setSelected} />
+  <button onClick={generatePreview} disabled={generating} className="btn-primary w-full mt-4">
+    ...
+  </button>
+</div>
 
         <TemplatePicker selected={form.template_id} onSelect={id => setForm(p => ({...p, template_id: id}))} />
 
