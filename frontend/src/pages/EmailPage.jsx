@@ -226,30 +226,30 @@ function CampaignCreate({ onBack, onDone }) {
   const [launching, setLaunching] = useState(false)
 
   const generatePreview = async () => {
-    if (!form.campaign_name) {
-      toast.error('Campaign name is required'); return
-    }
-    if (!form.is_cold_outreach && !form.campaign_info) {
-      toast.error('Context/info is required (or switch to Cold Outreach mode)'); return
-    }
-    if (selected.size === 0) { toast.error('Select target leads'); return }
-
-    const { lead_ids, inline_leads } = splitLeadsForLaunch(selected)
-
-    setGenerating(true)
-    try {
-      const { data } = await campaignApi.previewBatch(
-        form.is_cold_outreach ? '' : form.campaign_info,
-        lead_ids, inline_leads, form.template_id
-      )
-      setDrafts(data.drafts || [])
-      toast.success('Drafts generated — review and edit below')
-    } catch (e) {
-      toast.error(e.response?.data?.detail || 'Draft generation failed')
-    } finally {
-      setGenerating(false)
-    }
+  if (!form.campaign_name) {
+    toast.error('Campaign name is required'); return
   }
+  if (!form.is_cold_outreach && !form.campaign_info) {
+    toast.error('Context/info is required (or switch to Cold Outreach mode)'); return
+  }
+  if (selected.size === 0) { toast.error('Select target leads'); return }
+
+  const { lead_ids, inline_leads } = splitLeadsForLaunch(selected)
+
+  setGenerating(true)
+  try {
+    const { data } = await campaignApi.previewBatch(
+      form.is_cold_outreach ? '' : form.campaign_info,
+      lead_ids, inline_leads, form.template_id
+    )
+    setDrafts(data.drafts || [])
+    toast.success('Drafts generated — review and edit below')
+  } catch (e) {
+    toast.error(e.response?.data?.detail || 'Draft generation failed')
+  } finally {
+    setGenerating(false)
+  }
+}
 
 
   const updateDraft = (idx, field, value) => {
